@@ -67,20 +67,39 @@ jobs:
           & $signtool.FullName verify /pa target/release/gpu-mods-app.exe
           Remove-Item $pfx
 
+      - name: Instalador e versão portátil (gera e testa)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./installer/build.ps1 -Version $env:TAG.TrimStart('v')
+
+      - name: Sign installer
+        if: env.SIGN_PFX != ''
+        shell: pwsh
+        run: |
+          $pfx = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_PFX))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /f $pfx /p $env:SIGN_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist/DLSS5-FrameGen-Setup.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Remove-Item $pfx
+
       - name: Package
         shell: bash
         run: |
-          mkdir -p dist pkg
+          mkdir -p dist portable
           cp target/release/gpu-mods-app.exe dist/DLSS5-FrameGen.exe
-          cp dist/DLSS5-FrameGen.exe README.md LICENSE CHANGELOG.md pkg/
-          (cd pkg && 7z a -tzip "../dist/DLSS5-FrameGen-$TAG-windows-x64.zip" . > /dev/null)
-          (cd dist && sha256sum DLSS5-FrameGen.exe "DLSS5-FrameGen-$TAG-windows-x64.zip" > SHA256SUMS.txt)
+          cp dist/DLSS5-FrameGen.exe README.md LICENSE CHANGELOG.md portable/
+          printf 'Versao portatil: com este arquivo ao lado do .exe, o app guarda cache, jogos adicionados e configuracoes na pasta GpuMods aqui do lado.\r\nApague este arquivo para usar %%LOCALAPPDATA%%\\GpuMods.\r\n' > portable/portable.txt
+          (cd portable && 7z a -tzip "../dist/DLSS5-FrameGen-$TAG-portable-win-x64.zip" . > /dev/null)
+          (cd dist && sha256sum DLSS5-FrameGen.exe DLSS5-FrameGen-Setup.exe "DLSS5-FrameGen-$TAG-portable-win-x64.zip" > SHA256SUMS.txt)
           cat dist/SHA256SUMS.txt
 
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/DLSS5-FrameGen.exe
+            dist/DLSS5-FrameGen-Setup.exe
             dist/DLSS5-FrameGen-*.zip
 
       - name: Release notes

@@ -15,7 +15,13 @@ App para Windows que coloca **DLSS 5 (Neural Rendering)** e **Frame Generation d
 
 ## Download
 
-Baixe o **`DLSS5-FrameGen.exe`** na [última release](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/releases/latest). Ele roda direto, sem instalar e sem precisar do Visual C++ Redistributable.
+Na [última release](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/releases/latest), escolha:
+
+- **`DLSS5-FrameGen-Setup.exe`**: instalador. Cria atalho no Menu Iniciar (e na área de trabalho, se quiser) e aparece em "Aplicativos instalados" para desinstalar. Instala só para o seu usuário, sem pedir Administrador.
+- **`DLSS5-FrameGen-vX.Y.Z-portable-win-x64.zip`**: versão portátil. Descompacte onde quiser, até num pendrive. Com o `portable.txt` ao lado do `.exe`, cache, jogos adicionados e configurações ficam na pasta `GpuMods` ali mesmo.
+- **`DLSS5-FrameGen.exe`**: só o app, roda direto.
+
+Nenhum precisa do Visual C++ Redistributable, e os três se atualizam sozinhos.
 
 > O `.exe` não é assinado digitalmente: na primeira vez, o Windows SmartScreen pode avisar. Clique em **Mais informações → Executar assim mesmo**. O hash SHA-256 do arquivo vem junto na release.
 
@@ -56,7 +62,7 @@ Usa o [NeuralHub (DLSS-NR on AMD)](https://github.com/danielblnc/DLSS-NR-on-AMD)
 - **Hash conferido:** todo download é comparado com o SHA-256 publicado pelo GitHub; se não bater, o arquivo é apagado e nada é instalado.
 - **Reversível:** tudo o que vai para o jogo fica listado em `.gpu-mods-files.txt`; arquivos do jogo substituídos viram `*.gpumods-backup` e voltam ao remover.
 - **Estado por jogo:** `.gpu-mods-state.json` guarda a escolha e as versões instaladas.
-- Cache em `%LOCALAPPDATA%\GpuMods\cache`.
+- Cache em `%LOCALAPPDATA%\GpuMods\cache` (na versão portátil, na pasta `GpuMods` ao lado do `.exe`).
 
 > ⚠️ **Não use em jogos online com anti-cheat.** DLLs injetadas podem resultar em banimento. O app detecta Easy Anti-Cheat, BattlEye e EA Javelin pelos arquivos do jogo (e pelos perfis) e bloqueia o aplicar até você confirmar que vai jogar offline.
 
@@ -92,7 +98,7 @@ cargo xwin build --release --target x86_64-pc-windows-msvc   # do macOS/Linux
 
 ## Testes e qualidade
 
-- `cargo test`: 52 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
+- `cargo test`: 53 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
 - `cargo test -- --ignored`: baixa os pacotes reais, aplica num jogo falso (RTX 40, RX 7000, GTX, Intel), reinstala e remove, conferindo que nada sobra.
 - `DLSS5-FrameGen.exe --smoke-test relatorio.txt`: teste de fumaça do `.exe` final, sem janela (placa, lojas, perfis, planos e um aplicar/remover real).
 - CI no Windows a cada push e PR (clippy `-D warnings`, testes e o teste de fumaça do `.exe`); toda semana o workflow **Fontes externas** roda os testes com os pacotes reais e avisa se algum mod mudou.
@@ -115,6 +121,7 @@ Versões seguem SemVer e o [CHANGELOG](CHANGELOG.md). `scripts/release.sh X.Y.Z`
 | `src/update.rs` | Atualização automática do app |
 | `src/smoke.rs` | Teste de fumaça do `.exe` |
 | `src/main.rs` | Interface (egui) |
+| `installer/` | Instalador (Inno Setup) e o script que gera e testa instalador e versão portátil |
 
 Próximos passos em [PLANO-MELHORIAS.md](PLANO-MELHORIAS.md). Mudanças em [CHANGELOG.md](CHANGELOG.md).
 

@@ -33,8 +33,15 @@ pub fn get_json(url: &str) -> Result<serde_json::Value, String> {
     agent().get(url).header("User-Agent", UA).call().and_then(|r| r.into_body().read_json()).map_err(|e| e.to_string())
 }
 
+/// Where `GpuMods` (cache, manual games, settings) lives: next to the exe when `portable.txt` is there
+/// (portable copy, e.g. on a USB stick), else in %LOCALAPPDATA%.
+fn data_base(exe_dir: Option<PathBuf>, local: Option<PathBuf>) -> PathBuf {
+    exe_dir.filter(|d| d.join("portable.txt").exists()).or(local).unwrap_or_else(std::env::temp_dir)
+}
+
 pub fn cache_dir() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    let base = data_base(exe_dir, std::env::var_os("LOCALAPPDATA").map(PathBuf::from));
     let dir = base.join("GpuMods").join("cache");
     let _ = fs::create_dir_all(&dir);
     dir
@@ -516,6 +523,16 @@ mod tests {
         assert_eq!(release_cached(&dir, "a/b", 0, fetch).unwrap().tag_name, "v2", "expired: asks again");
         assert!(release_cached(&dir, "c/d", 3600, || Err("offline".into())).is_err());
         assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn portable_txt_keeps_data_next_to_the_exe() {
+        let exe = std::env::temp_dir().join(format!("gpumods-portable-{}", std::process::id()));
+        fs::create_dir_all(&exe).unwrap();
+        let local = PathBuf::from("local");
+        assert_eq!(data_base(Some(exe.clone()), Some(local.clone())), local);
+        fs::write(exe.join("portable.txt"), b"").unwrap();
+        assert_eq!(data_base(Some(exe.clone()), Some(local)), exe);
     }
 
     #[test]
