@@ -57,6 +57,9 @@ fn model_after(name: &str, token: &str) -> Option<u32> {
 pub fn classify(name: &str, vendor_id: u32) -> Gpu {
     let up = name.to_uppercase();
     let tier = match vendor_id {
+        // Workstation cards name the architecture: "RTX 2000 Ada", "RTX PRO 6000 Blackwell".
+        0x10DE if up.contains("BLACKWELL") => Tier::Rtx50,
+        0x10DE if up.contains(" ADA") => Tier::Rtx40,
         0x10DE => match model_after(name, "RTX") {
             Some(n) if (5000..6000).contains(&n) => Tier::Rtx50,
             Some(n) if (4000..5000).contains(&n) => Tier::Rtx40,
@@ -125,5 +128,38 @@ mod tests {
         for (name, vendor, tier) in cases {
             assert_eq!(classify(name, vendor).tier, tier, "{name}");
         }
+    }
+
+    #[test]
+    fn classifies_laptops_igpus_and_workstation_cards() {
+        let cases = [
+            ("NVIDIA GeForce RTX 5060 Laptop GPU", 0x10DE, Tier::Rtx50),
+            ("NVIDIA GeForce RTX 4090 D", 0x10DE, Tier::Rtx40),
+            ("NVIDIA GeForce RTX 3050 6GB Laptop GPU", 0x10DE, Tier::Rtx2030),
+            // Workstation cards name the architecture instead of the series.
+            ("NVIDIA RTX 2000 Ada Generation", 0x10DE, Tier::Rtx40),
+            ("NVIDIA RTX 6000 Ada Generation", 0x10DE, Tier::Rtx40),
+            ("NVIDIA RTX PRO 6000 Blackwell Workstation Edition", 0x10DE, Tier::Rtx50),
+            ("NVIDIA GeForce GTX 1080 Ti", 0x10DE, Tier::NvidiaOld),
+            ("AMD Radeon RX 9060 XT", 0x1002, Tier::Rdna4),
+            ("AMD Radeon RX 7900 GRE", 0x1002, Tier::Rdna3),
+            ("AMD Radeon RX 6600M", 0x1002, Tier::Rdna2),
+            ("AMD Radeon 780M Graphics", 0x1002, Tier::AmdOld),
+            ("Intel(R) Arc(TM) B580 Graphics", 0x8086, Tier::Intel),
+            ("  NVIDIA GeForce RTX 4070  ", 0x10DE, Tier::Rtx40),
+        ];
+        for (name, vendor, tier) in cases {
+            assert_eq!(classify(name, vendor).tier, tier, "{name}");
+        }
+        assert_eq!(classify("  NVIDIA GeForce RTX 4070  ", 0x10DE).name, "NVIDIA GeForce RTX 4070");
+    }
+
+    #[test]
+    fn tier_flags_are_consistent() {
+        for t in Tier::ALL {
+            assert!(!t.is_rtx() || t.is_nvidia(), "{t:?}");
+            assert!(!t.label().is_empty());
+        }
+        assert_eq!(Tier::ALL.iter().filter(|t| t.is_nvidia()).count(), 4);
     }
 }

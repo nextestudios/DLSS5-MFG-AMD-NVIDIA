@@ -20,6 +20,15 @@ fn agent() -> &'static ureq::Agent {
     })
 }
 
+/// GitHub API request. Honors GITHUB_TOKEN (CI), which lifts the 60 requests/hour anonymous limit.
+fn api(path: &str) -> Result<ureq::Body, ureq::Error> {
+    let mut req = agent().get(&format!("https://api.github.com/{path}")).header("User-Agent", UA);
+    if let Ok(t) = std::env::var("GITHUB_TOKEN") {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+    req.call().map(|r| r.into_body())
+}
+
 pub fn cache_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let dir = base.join("GpuMods").join("cache");
@@ -75,13 +84,13 @@ pub struct Fetched {
 /// Tag, file name and URL of the latest stable release asset whose name matches `pick`.
 /// Repos with only pre-releases (nightlies) have no "latest": then the newest release is used.
 fn latest_asset(repo: &str, pick: fn(&str) -> bool) -> Result<(String, Asset), String> {
-    let get = |path: &str| agent().get(&format!("https://api.github.com/repos/{repo}/{path}")).header("User-Agent", UA).call();
+    let get = |path: &str| api(&format!("repos/{repo}/{path}"));
     let rel: Release = match get("releases/latest") {
         Err(ureq::Error::StatusCode(404)) => get("releases?per_page=1")
-            .and_then(|r| r.into_body().read_json::<Vec<Release>>())
+            .and_then(|mut b| b.read_json::<Vec<Release>>())
             .map_err(|e| e.to_string())?
             .into_iter().next().ok_or("nenhuma release publicada")?,
-        r => r.and_then(|r| r.into_body().read_json()).map_err(|e| e.to_string())?,
+        r => r.and_then(|mut b| b.read_json()).map_err(|e| e.to_string())?,
     };
     let asset = rel.assets.into_iter().find(|a| pick(&a.name))
         .ok_or_else(|| format!("a release {} não tem o arquivo esperado", rel.tag_name))?;
@@ -252,12 +261,7 @@ struct Tag {
 
 /// ReShade with add-on support. Version comes from crosire/reshade tags; the file from reshade.me.
 pub fn reshade(log: Log) -> Result<Fetched, String> {
-    let tags: Vec<Tag> = agent()
-        .get("https://api.github.com/repos/crosire/reshade/tags")
-        .header("User-Agent", UA)
-        .call()
-        .and_then(|r| r.into_body().read_json())
-        .unwrap_or_default();
+    let tags: Vec<Tag> = api("repos/crosire/reshade/tags").and_then(|mut b| b.read_json()).unwrap_or_default();
     let version = tags.iter().map(|t| t.name.trim_start_matches('v'))
         .find(|v| v.split('.').count() == 3 && v.split('.').all(|p| p.parse::<u32>().is_ok()));
     let Some(v) = version else {
@@ -314,6 +318,118 @@ mod tests {
     use super::*;
 
     /// Network test: `cargo test -- --ignored`. Checks the real packages still have what we expect.
+    use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+
+    fn zip_bytes(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, data) in entries {
+            let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            w.start_file(*name, opts).unwrap();
+            w.write_all(data).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    /// Minimal HTTP server for `data`. With `ranges` false it ignores Range headers, like some CDNs.
+    fn serve(data: Vec<u8>, ranges: bool) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/pkg.zip", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for mut conn in listener.incoming().flatten() {
+                let mut req = Vec::new();
+                let mut b = [0u8; 1];
+                while !req.ends_with(b"\r\n\r\n") && conn.read(&mut b).unwrap_or(0) == 1 {
+                    req.push(b[0]);
+                }
+                let req = String::from_utf8_lossy(&req).to_lowercase();
+                let range = req.lines().find_map(|l| l.strip_prefix("range: bytes=")).and_then(|r| {
+                    let (a, b) = r.trim().split_once('-')?;
+                    Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?))
+                });
+                let resp = match range.filter(|_| ranges) {
+                    Some((a, b)) => {
+                        let b = b.min(data.len() - 1);
+                        let mut r = format!("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {a}-{b}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", data.len(), b - a + 1).into_bytes();
+                        r.extend_from_slice(&data[a..=b]);
+                        r
+                    }
+                    None => {
+                        let mut r = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", data.len()).into_bytes();
+                        r.extend_from_slice(&data);
+                        r
+                    }
+                };
+                let _ = conn.write_all(&resp);
+            }
+        });
+        url
+    }
+
+    fn pattern(len: usize, seed: u8) -> Vec<u8> {
+        (0..len).map(|i| (i % 251) as u8 ^ seed).collect()
+    }
+
+    #[test]
+    fn unzip_some_extracts_only_wanted_entries() {
+        let z = zip_bytes(&[("a/keep.dll", b"keep".to_vec()), ("b/skip.dll", b"skip".to_vec())]);
+        let dest = std::env::temp_dir().join(format!("gpumods-unzip-{}", std::process::id()));
+        fs::create_dir_all(&dest).unwrap();
+        unzip_some(Cursor::new(z.clone()), &["a/keep.dll"], &dest, &|_| {}).unwrap();
+        assert_eq!(fs::read(dest.join("keep.dll")).unwrap(), b"keep");
+        assert!(!dest.join("skip.dll").exists() && !dest.join("keep.dll.part").exists());
+        assert!(unzip_some(Cursor::new(z), &["missing.dll"], &dest, &|_| {}).unwrap_err().contains("missing.dll"));
+    }
+
+    #[test]
+    fn remote_reads_and_seeks_across_chunks() {
+        // Bigger than one 8 MB chunk, so reads cross a chunk boundary.
+        let data = pattern(20 << 20, 0);
+        let mut r = Remote::open(&serve(data.clone(), true)).unwrap();
+        assert_eq!(r.len, data.len() as u64);
+
+        let mut buf = vec![0u8; 64];
+        let at = (8 << 20) - 32;
+        r.seek(SeekFrom::Start(at as u64)).unwrap();
+        r.read_exact(&mut buf).unwrap();
+        assert_eq!(buf, data[at..at + 64]);
+
+        r.seek(SeekFrom::End(-10)).unwrap();
+        let mut tail = Vec::new();
+        r.read_to_end(&mut tail).unwrap();
+        assert_eq!(tail, data[data.len() - 10..]);
+
+        r.seek(SeekFrom::Start(5)).unwrap();
+        r.seek(SeekFrom::Current(-2)).unwrap();
+        let mut b3 = [0u8; 3];
+        r.read_exact(&mut b3).unwrap();
+        assert_eq!(b3, data[3..6]);
+        assert!(r.seek(SeekFrom::Current(-100)).is_err());
+    }
+
+    #[test]
+    fn remote_zip_entry_matches_original() {
+        let big = pattern(12 << 20, 7);
+        let z = zip_bytes(&[("OptiScaler/streamline/nvngx_dlssnr.dll", big.clone()), ("small.ini", b"x=1".to_vec())]);
+        let dest = std::env::temp_dir().join(format!("gpumods-remotezip-{}", std::process::id()));
+        fs::create_dir_all(&dest).unwrap();
+        let r = Remote::open(&serve(z, true)).unwrap();
+        unzip_some(r, &["OptiScaler/streamline/nvngx_dlssnr.dll", "small.ini"], &dest, &|_| {}).unwrap();
+        assert_eq!(fs::read(dest.join("nvngx_dlssnr.dll")).unwrap(), big);
+        assert_eq!(fs::read(dest.join("small.ini")).unwrap(), b"x=1");
+    }
+
+    #[test]
+    fn remote_refuses_servers_without_ranges() {
+        let err = Remote::open(&serve(pattern(1000, 0), false)).err().unwrap();
+        assert!(err.contains("parcial"), "{err}");
+    }
+
+    #[test]
+    fn safe_names_for_cache_files() {
+        assert_eq!(safe("optiscaler/OptiScaler"), "optiscaler_OptiScaler");
+        assert_eq!(safe("v1.0 beta+2"), "v1.0_beta_2");
+    }
+
     #[test]
     fn sha256_known_value() {
         let p = std::env::temp_dir().join(format!("gpumods-sha-{}", std::process::id()));

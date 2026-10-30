@@ -1,0 +1,19 @@
+name: Fontes externas
+
+# The mods change asset names and layouts without notice. Once a week, download the real packages,
+# apply them to a fake game and remove them again; a failure here means the app needs an update.
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  real-packages:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release --locked -- --ignored --nocapture
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

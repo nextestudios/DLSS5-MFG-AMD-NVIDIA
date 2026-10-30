@@ -313,7 +313,7 @@ impl eframe::App for App {
                 ui.label(RichText::new("◆").size(22.0).color(acc));
                 ui.vertical(|ui| {
                     ui.label(RichText::new("DLSS 5 + Frame Generation").size(18.0).strong().color(Color32::WHITE));
-                    ui.label(RichText::new("Mods sempre na versão mais nova, em qualquer placa").size(11.0).color(MUTED));
+                    ui.label(RichText::new(concat!("v", env!("CARGO_PKG_VERSION"), " · mods sempre na versão mais nova, em qualquer placa")).size(11.0).color(MUTED));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let before = self.gpu.tier;
@@ -630,4 +630,37 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native("DLSS 5 + Frame Generation", options, Box::new(|cc| Ok(Box::new(App::new(cc, game)))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ago_in_days() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        assert_eq!(ago(now), "hoje");
+        assert_eq!(ago(now - 86_400), "ontem");
+        assert_eq!(ago(now - 5 * 86_400), "há 5 dias");
+        assert_eq!(ago(now + 3600), "hoje", "clock skew does not underflow");
+    }
+
+    #[test]
+    fn each_vendor_and_store_has_its_colour() {
+        assert_ne!(accent(Tier::Rtx40), accent(Tier::Rdna4));
+        assert_ne!(accent(Tier::Rdna4), accent(Tier::Intel));
+        assert_eq!(accent(Tier::NvidiaOld), accent(Tier::Rtx50));
+        let stores = ["Steam", "Epic", "GOG", "Ubisoft", "EA", "Xbox", "Rockstar"];
+        let mut colours: Vec<_> = stores.iter().map(|s| store_color(s).to_array()).collect();
+        colours.sort();
+        colours.dedup();
+        assert_eq!(colours.len(), stores.len());
+    }
+
+    #[test]
+    fn default_multiplier_is_always_available() {
+        for t in Tier::ALL {
+            assert!(plan::multipliers(t).contains(&default_mult(t)), "{t:?}");
+        }
+    }
 }

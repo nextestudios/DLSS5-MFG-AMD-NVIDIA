@@ -11,10 +11,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
       - run: cargo build --release --locked
       - uses: actions/upload-artifact@v7
         with:
           name: DLSS5-FrameGen
           path: target/release/gpu-mods-app.exe
+
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: CHANGELOG atualizado
+        run: |
+          git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -qx CHANGELOG.md \
+            || { echo "::error::Toda mudança precisa de uma linha em CHANGELOG.md, na seção [Unreleased]"; exit 1; }

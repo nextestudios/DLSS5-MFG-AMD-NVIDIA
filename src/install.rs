@@ -526,4 +526,124 @@ mod tests {
         assert_eq!(resolve_game_dir(&root).unwrap(), bin);
         assert_eq!(resolve_game_dir(&bin.join("MyGame-Win64-Shipping.exe")).unwrap(), bin);
     }
+
+    #[test]
+    fn nested_place_and_new_files_are_tracked_and_removed() {
+        let game = tmp("nested");
+        let src = game.join("src.bin");
+        fs::write(&src, "mfg").unwrap();
+        fs::write(game.join("ReShade.ini"), "[GENERAL]\r\n").unwrap();
+        let log = |_: String| {};
+        let mut g = Game::open(&game);
+        g.place(&src, "OptiScaler/plugins/MFGUnlocker.asi", &log).unwrap();
+        g.write_file("RTXMFG-Universal.json", "{}").unwrap();
+        g.set_ini("OptiScaler.ini", "Plugins", "LoadAsiPlugins", "true").unwrap();
+        g.set_ini("ReShade.ini", "RenoDX.MFGUnlock", "ForceMultiplier", "4").unwrap();
+        g.save().unwrap();
+        assert!(game.join("OptiScaler/plugins/MFGUnlocker.asi").exists());
+        assert!(fs::read_to_string(game.join("ReShade.ini")).unwrap().contains("ForceMultiplier=4"));
+
+        uninstall(&game, &log).unwrap();
+        assert!(!game.join("OptiScaler/plugins/MFGUnlocker.asi").exists());
+        assert!(!game.join("RTXMFG-Universal.json").exists() && !game.join("OptiScaler.ini").exists());
+        assert!(game.join("ReShade.ini").exists(), "the user's own ReShade.ini stays");
+    }
+
+    #[test]
+    fn uninstall_tolerates_files_already_gone() {
+        let game = tmp("gone");
+        fs::write(game.join(MANIFEST), "dxgi.dll\r\nmissing.dll").unwrap();
+        fs::write(game.join("dxgi.dll"), "x").unwrap();
+        uninstall(&game, &|_| {}).unwrap();
+        assert!(!game.join("dxgi.dll").exists() && !has_mods(&game));
+    }
+
+    #[test]
+    fn detects_optiscaler_by_embedded_name() {
+        let d = tmp("orig");
+        let mut bytes = b"MZ....".to_vec();
+        bytes.extend("OptiScaler.dll".encode_utf16().flat_map(u16::to_le_bytes));
+        fs::write(d.join("dxgi.dll"), bytes).unwrap();
+        fs::write(d.join("winmm.dll"), "MZ other").unwrap();
+        assert_eq!(original_filename(&d.join("dxgi.dll")).as_deref(), Some("OptiScaler.dll"));
+        assert_eq!(original_filename(&d.join("winmm.dll")), None);
+        assert_eq!(original_filename(&d.join("nope.dll")), None);
+    }
+
+    #[test]
+    fn dlss_dlls_come_from_this_game_only() {
+        let lib = tmp("lib").join("steamapps/common");
+        let exe_dir = lib.join("MyGame/MyGame/Binaries/Win64");
+        let plugin = lib.join("MyGame/Engine/Plugins/DLSS/Binaries/ThirdParty/Win64");
+        let other = lib.join("OtherGame");
+        for d in [&exe_dir, &plugin, &other] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(plugin.join("nvngx_dlss.dll"), "mine").unwrap();
+        fs::write(other.join("nvngx_dlssd.dll"), "not mine").unwrap();
+        let mut g = Game::open(&exe_dir);
+        copy_dlss_dlls(&mut g, &|_| {}).unwrap();
+        assert_eq!(fs::read_to_string(exe_dir.join("nvngx_dlss.dll")).unwrap(), "mine");
+        assert!(!exe_dir.join("nvngx_dlssd.dll").exists(), "must not cross into another game");
+    }
+
+    #[test]
+    fn state_reading_and_update_all_skip_unmodded() {
+        let d = tmp("state");
+        assert!(read_state(&d).is_none());
+        fs::write(d.join(STATE), "not json").unwrap();
+        assert!(read_state(&d).is_none());
+        let plain = tmp("plain");
+        let gpu = Gpu { name: "x".into(), tier: Tier::Rtx40 };
+        let logs = std::cell::RefCell::new(Vec::new());
+        update_all(&gpu, &[plain], &|s| logs.borrow_mut().push(s)).unwrap();
+        assert!(logs.borrow().is_empty(), "nothing to update, no network");
+    }
+
+    #[test]
+    fn resolve_errors_and_write_check() {
+        let d = tmp("empty");
+        assert!(resolve_game_dir(&d).unwrap_err().contains("Nenhum .exe"));
+        assert!(resolve_game_dir(&d.join("nope")).unwrap_err().contains("não encontrada"));
+        fs::write(d.join("unins000.exe"), "x").unwrap();
+        assert!(resolve_game_dir(&d).is_err(), "uninstallers are not games");
+        assert!(can_write(&d));
+        assert!(!d.join(".gpu-mods-write-test").exists());
+    }
+
+    /// End to end with the real packages: `cargo test -- --ignored`. Applies to a fake game and removes it.
+    #[test]
+    #[ignore]
+    fn real_apply_and_uninstall() {
+        let log = |s: String| println!("{s}");
+        for (tier, dlss5, mult) in [(Tier::Rtx40, false, 3), (Tier::Rdna3, false, 6), (Tier::NvidiaOld, false, 2), (Tier::Intel, false, 4)] {
+            let game = tmp(&format!("e2e-{tier:?}"));
+            fs::write(game.join("Game.exe"), "x").unwrap();
+            fs::write(game.join("dxgi.dll"), "original").unwrap();
+            let gpu = Gpu { name: "test".into(), tier };
+            apply(&gpu, dlss5, mult, &game, &log).unwrap();
+            let st = read_state(&game).unwrap();
+            assert_eq!((st.mult, st.dlss5), (mult, dlss5));
+            assert!(fs::metadata(game.join("dxgi.dll")).unwrap().len() > 1_000_000, "{tier:?}: proxy installed");
+            assert_eq!(fs::read_to_string(game.join("dxgi.dll.gpumods-backup")).unwrap(), "original");
+            let ini = fs::read_to_string(game.join("OptiScaler.ini")).unwrap_or_default();
+            match tier {
+                Tier::Rtx40 => assert!(fs::read_to_string(game.join("RTXMFG-Universal.json")).unwrap().contains("\"multiplier\": 3")),
+                Tier::Rdna3 => {
+                    assert!(game.join("OptiScaler/plugins/MFGUnlocker.asi").exists());
+                    assert!(ini.contains("FGOutput=xefg") && ini.contains("InterpolationCount=5") && ini.contains("LoadAsiPlugins=true"));
+                }
+                Tier::NvidiaOld => assert!(ini.contains("FGOutput=fsrfg")),
+                _ => assert!(ini.contains("Dx12Upscaler=xess") && ini.contains("InterpolationCount=3")),
+            }
+            // Reapplying must not stack backups or lose the original.
+            apply(&gpu, dlss5, mult, &game, &log).unwrap();
+            uninstall(&game, &log).unwrap();
+            let left: Vec<String> = fs::read_dir(&game).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            assert_eq!(fs::read_to_string(game.join("dxgi.dll")).unwrap(), "original");
+            let mut left = left;
+            left.sort();
+            assert_eq!(left, ["Game.exe", "dxgi.dll"], "{tier:?}: everything removed");
+        }
+    }
 }
