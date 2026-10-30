@@ -1,4 +1,4 @@
-//! Cover art from Steam's CDN (poster, background, logo), cached on disk.
+//! Cover art (poster, background) and store details from Steam's official store APIs, cached on disk.
 //! Games from other stores get Steam's art when a Steam game has exactly the same name.
 use std::fs;
 use std::path::PathBuf;
@@ -12,8 +12,48 @@ pub struct Art {
     pub poster: Option<PathBuf>,
     /// 1920x620 background.
     pub hero: Option<PathBuf>,
-    /// Transparent title logo.
-    pub logo: Option<PathBuf>,
+    pub appid: Option<u32>,
+    pub details: Option<Details>,
+}
+
+/// "Sobre" data from the Steam store, in Portuguese.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Details {
+    pub description: String,
+    pub developers: String,
+    pub publishers: String,
+    pub release: String,
+    pub genres: Vec<String>,
+}
+
+/// Steam's official `appdetails` answer (the `data` object) to Details. Cached per app.
+fn parse_details(d: &serde_json::Value) -> Option<Details> {
+    let list = |k: &str| d[k].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    let text = d["short_description"].as_str()?;
+    // Store text comes with HTML entities.
+    let description = [("&quot;", "\""), ("&#39;", "'"), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">")]
+        .iter().fold(text.to_string(), |s, (e, c)| s.replace(e, c));
+    Some(Details {
+        description,
+        developers: list("developers"),
+        publishers: list("publishers"),
+        release: d["release_date"]["date"].as_str().unwrap_or_default().to_string(),
+        genres: d["genres"].as_array().into_iter().flatten().filter_map(|g| g["description"].as_str().map(str::to_string)).collect(),
+    })
+}
+
+fn details(appid: u32) -> Option<Details> {
+    let cached = dir().join(format!("{appid}.details.json"));
+    let data = match fs::read_to_string(&cached).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+        Some(v) => v,
+        None => {
+            let j = net::get_json(&format!("https://store.steampowered.com/api/appdetails?appids={appid}&l=brazilian")).ok()?;
+            let v = j[appid.to_string()]["data"].clone();
+            let _ = fs::write(&cached, v.to_string());
+            v
+        }
+    };
+    parse_details(&data)
 }
 
 /// "Forza Horizon 5™" and "ForzaHorizon5" both become "forzahorizon5".
@@ -101,8 +141,8 @@ pub fn fetch(game: &Found) -> Art {
     Art {
         poster: named("library_capsule_2x", "library_600x900.jpg"),
         hero: named("library_hero", "library_hero.jpg"),
-        // The API has no logo entry; this path still works for most games.
-        logo: steam_file(appid, "logo.png"),
+        appid: Some(appid),
+        details: details(appid),
     }
 }
 
@@ -124,6 +164,24 @@ mod tests {
     }
 
     #[test]
+    fn store_details_in_portuguese() {
+        let d = serde_json::json!({
+            "short_description": "O clássico &quot;Dead Space&quot; volta.",
+            "developers": ["Motive"], "publishers": ["Electronic Arts", "EA"],
+            "release_date": {"date": "27/jan./2023"},
+            "genres": [{"description": "Ação"}, {"description": "Aventura"}]
+        });
+        assert_eq!(parse_details(&d), Some(Details {
+            description: "O clássico \"Dead Space\" volta.".into(),
+            developers: "Motive".into(),
+            publishers: "Electronic Arts, EA".into(),
+            release: "27/jan./2023".into(),
+            genres: vec!["Ação".into(), "Aventura".into()],
+        }));
+        assert_eq!(parse_details(&serde_json::Value::Null), None, "no data, no Sobre card");
+    }
+
+    #[test]
     fn picks_the_game_not_its_dlc() {
         let r = serde_json::json!({"items": [
             {"id": 2138330, "name": "Cyberpunk 2077: Phantom Liberty"},
@@ -140,6 +198,8 @@ mod tests {
     #[ignore]
     fn real_art() {
         let a = fetch(&Found { name: "Cyberpunk 2077".into(), store: "Epic", ..Found::default() });
-        assert!(a.poster.is_some() && a.hero.is_some() && a.logo.is_some());
+        assert!(a.poster.is_some() && a.hero.is_some());
+        let d = a.details.unwrap();
+        assert!(d.developers.contains("CD PROJEKT") && !d.description.is_empty() && !d.genres.is_empty(), "{d:?}");
     }
 }

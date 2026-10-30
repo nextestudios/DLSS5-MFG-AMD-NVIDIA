@@ -5,6 +5,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+### Alterado
+- **Tela do jogo nova**, no estilo de página de loja: capa, título, desenvolvedora, data e loja no topo, com **▶ Jogar** e menu **⋯** (abrir pasta, remover mods, tirar da biblioteca).
+- Cartão **Sobre** com a descrição, desenvolvedora, publicadora, lançamento e gêneros, em português, vindos da API oficial da loja Steam (`appdetails`), mais a loja e a pasta do jogo.
+- Cartão **Mods neste jogo**: status em verde, uma linha por escolha (DLSS 5, Frame Generation, Carregar como) com o seletor ao lado, e o botão de aplicar embaixo.
+- Títulos dos cartões maiores e em texto normal.
+
+### Adicionado
+- **▶ Jogar**: abre o jogo pela Steam (`steam://rungameid`) ou pelo `.exe` principal da pasta.
+
 ## [1.3.1] - 2026-10-30
 
 ### Corrigido
