@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/actions/workflows/ci.yml/badge.svg)](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/nextestudios/DLSS5-MFG-AMD-NVIDIA)](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/releases/latest)
+[![Fontes externas](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/actions/workflows/sources.yml/badge.svg)](https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/actions/workflows/sources.yml)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-green.svg)](LICENSE)
 
 App para Windows que coloca **DLSS 5 (Neural Rendering)** e **Frame Generation de 2x a 6x** em qualquer jogo, em placas **NVIDIA, AMD e Intel**. Você escolhe o jogo; o app detecta a placa, baixa as versões mais novas dos mods mais usados da comunidade, confere o hash de cada arquivo e instala do jeito certo. Um clique desfaz tudo.
@@ -78,7 +79,15 @@ cargo build --release            # no Windows
 cargo xwin build --release --target x86_64-pc-windows-msvc   # do macOS/Linux
 ```
 
-Cada tag `v*` gera uma release automaticamente pelo GitHub Actions (build e testes no Windows).
+## Testes e qualidade
+
+- `cargo test`: 36 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
+- `cargo test -- --ignored`: baixa os pacotes reais, aplica num jogo falso (RTX 40, RX 7000, GTX, Intel), reinstala e remove, conferindo que nada sobra.
+- CI no Windows a cada push e PR (clippy `-D warnings` + testes); toda semana o workflow **Fontes externas** roda os testes com os pacotes reais e avisa se algum mod mudou.
+
+## Releases
+
+Versões seguem SemVer e o [CHANGELOG](CHANGELOG.md). `scripts/release.sh X.Y.Z` prepara a versão e a tag; o GitHub Actions publica o `.exe`, um zip com a documentação, `SHA256SUMS.txt` e o atestado de procedência. Detalhes em [RELEASING.md](RELEASING.md). Contribuições: [CONTRIBUTING.md](CONTRIBUTING.md) · Segurança: [SECURITY.md](SECURITY.md).
 
 ## Estrutura
 

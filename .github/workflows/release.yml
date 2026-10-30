@@ -1,31 +1,86 @@
 name: Release
 
+# Publishes a release for every tag vX.Y.Z (or vX.Y.Z-rc.N as a pre-release).
+# Create tags with scripts/release.sh; see RELEASING.md.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check tag, Cargo.toml and CHANGELOG
+        shell: bash
+        run: |
+          v="${TAG#v}"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::tag $TAG não é vX.Y.Z"; exit 1; }
+          cargo_v="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          [[ "$cargo_v" == "$v" ]] || { echo "::error::Cargo.toml está em $cargo_v, tag é $v"; exit 1; }
+          awk -v v="$v" 'index($0, "## [" v "]") == 1 {f=1; next} /^## \[/ || /^\[[^]]+\]: / {f=0} f' CHANGELOG.md > changes.md
+          if [[ "$TAG" == *-* ]] && ! grep -q '[^[:space:]]' changes.md; then
+            # Pre-release: notes come from [Unreleased].
+            awk 'index($0, "## [Unreleased]") == 1 {f=1; next} /^## \[/ || /^\[[^]]+\]: / {f=0} f' CHANGELOG.md > changes.md
+          fi
+          grep -q '[^[:space:]]' changes.md || { echo "::error::CHANGELOG.md não tem a seção [$v]"; exit 1; }
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
       - run: cargo build --release --locked
+
       - name: Package
         shell: bash
         run: |
-          cp target/release/gpu-mods-app.exe DLSS5-FrameGen.exe
-          sha256sum DLSS5-FrameGen.exe > DLSS5-FrameGen.exe.sha256
-          v="${GITHUB_REF_NAME#v}"
-          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
-          printf '\n**SHA-256:** `%s`\n' "$(cut -d' ' -f1 DLSS5-FrameGen.exe.sha256)" >> notes.md
+          mkdir -p dist pkg
+          cp target/release/gpu-mods-app.exe dist/DLSS5-FrameGen.exe
+          cp dist/DLSS5-FrameGen.exe README.md LICENSE CHANGELOG.md pkg/
+          (cd pkg && 7z a -tzip "../dist/DLSS5-FrameGen-$TAG-windows-x64.zip" . > /dev/null)
+          (cd dist && sha256sum DLSS5-FrameGen.exe "DLSS5-FrameGen-$TAG-windows-x64.zip" > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/DLSS5-FrameGen.exe
+            dist/DLSS5-FrameGen-*.zip
+
+      - name: Release notes
+        shell: bash
+        run: |
+          prev="$(git describe --tags --abbrev=0 --exclude '*-*' "$TAG^" 2>/dev/null || true)"
+          repo="https://github.com/${GITHUB_REPOSITORY}"
+          if [[ -n "$prev" ]]; then compare="$repo/compare/$prev...$TAG"; else compare="$repo/commits/$TAG"; fi
+          sha="$(grep 'DLSS5-FrameGen.exe$' dist/SHA256SUMS.txt | cut -d' ' -f1)"
+          python - "$TAG" "$sha" "$compare" <<'PY'
+          import sys
+          tag, sha, compare = sys.argv[1:]
+          t = open(".github/release-template.md", encoding="utf-8").read()
+          changes = open("changes.md", encoding="utf-8").read().strip()
+          for k, v in {"VERSION": tag, "CHANGES": changes, "SHA_EXE": sha, "COMPARE": compare}.items():
+              t = t.replace("{{" + k + "}}", v)
+          open("notes.md", "w", encoding="utf-8").write(t)
+          PY
+          cat notes.md
+
       - name: Publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" DLSS5-FrameGen.exe DLSS5-FrameGen.exe.sha256 --title "DLSS5-FrameGen $GITHUB_REF_NAME" --notes-file notes.md
+        run: |
+          pre=""; [[ "$TAG" == *-* ]] && pre="--prerelease"
+          gh release create "$TAG" dist/* --title "DLSS5-FrameGen $TAG" --notes-file notes.md $pre --verify-tag

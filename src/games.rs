@@ -185,4 +185,38 @@ mod tests {
         let x = xbox(&d);
         assert_eq!((x[0].name.as_str(), x[0].dir.clone()), ("Forza", d.join("XboxGames/Forza/Content")));
     }
+
+    #[test]
+    fn vdf_unescapes_windows_paths_and_ignores_sections() {
+        let kv = vdf_pairs("\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"D:\\\\SteamLibrary\"\n\t\t\"label\"\t\t\"\"\n\t}\n}\n");
+        assert_eq!(kv, [("path".to_string(), r"D:\SteamLibrary".to_string()), ("label".to_string(), String::new())]);
+    }
+
+    #[test]
+    fn finish_drops_missing_and_duplicate_folders_and_sorts() {
+        let d = std::env::temp_dir().join(format!("gpumods-finish-{}", std::process::id()));
+        fs::create_dir_all(d.join("a")).unwrap();
+        fs::create_dir_all(d.join("b")).unwrap();
+        let f = |name: &str, store, dir: &str| Found { name: name.into(), store, dir: d.join(dir) };
+        let out = finish(vec![f("zeta", "Steam", "a"), f("Alpha", "Epic", "b"), f("Zeta again", "GOG", "a"), f("gone", "EA", "missing")]);
+        let names: Vec<&str> = out.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(names, ["Alpha", "zeta"]);
+    }
+
+    #[test]
+    fn epic_skips_broken_manifests_and_xbox_needs_content() {
+        let d = std::env::temp_dir().join(format!("gpumods-broken-{}", std::process::id()));
+        fs::create_dir_all(d.join("XboxGames/NoContent")).unwrap();
+        fs::create_dir_all(d.join("Games2/Halo/Content")).unwrap();
+        fs::write(d.join("bad.item"), "{ not json").unwrap();
+        fs::write(d.join("nofields.item"), "{}").unwrap();
+        assert!(epic(&d).is_empty());
+        let mut root = b"RGBX\x02\x00\x00\x00".to_vec();
+        root.extend("XboxGames\0Games2\0".encode_utf16().flat_map(u16::to_le_bytes));
+        fs::write(d.join(".GamingRoot"), root).unwrap();
+        let x = xbox(&d);
+        assert_eq!(x.len(), 1);
+        assert_eq!(x[0].name, "Halo");
+        assert!(xbox(&d.join("no-drive")).is_empty());
+    }
 }

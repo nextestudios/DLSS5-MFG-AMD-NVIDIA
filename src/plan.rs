@@ -284,4 +284,63 @@ mod tests {
         assert_eq!(val(&p, "Upscalers", "Dx12Upscaler").as_deref(), Some("xess"));
         assert_eq!(val(&p, "XeFG", "InterpolationCount").as_deref(), Some("1"));
     }
+
+    /// Rules that must hold for every GPU x DLSS 5 x multiplier, including invalid multipliers.
+    #[test]
+    fn invariants_for_every_combination() {
+        for tier in Tier::ALL {
+            for dlss5 in [false, true] {
+                for mult in [0u8, 1, 2, 3, 4, 5, 6, 8] {
+                    let p = build(tier, dlss5, mult);
+                    let ctx = format!("{tier:?} dlss5={dlss5} {mult}x");
+                    let effective = if multipliers(tier).contains(&mult) { mult } else { OFF };
+
+                    // Only one thing may be the game's dxgi.dll proxy.
+                    let proxies = usize::from(p.opti.is_some())
+                        + usize::from(p.reshade && p.opti.is_none())
+                        + usize::from(p.mfg_unlocker && p.opti.is_none());
+                    assert!(proxies <= 1, "{ctx}: {proxies} proxies");
+
+                    if p.neuralhub {
+                        assert!(p.opti.is_none() && p.ini.is_empty() && p.files.is_empty() && !p.reshade && !p.mfg_unlocker, "{ctx}");
+                        assert!(!tier.is_nvidia() && dlss5, "{ctx}");
+                    }
+                    if effective == OFF {
+                        assert!(!p.mfg_unlocker && !p.mfg_addon, "{ctx}: FG off but MFG installed");
+                        assert_ne!(val(&p, "FrameGen", "Enabled").as_deref(), Some("true"), "{ctx}");
+                    }
+                    if !dlss5_supported(tier) {
+                        assert!(!p.neuralhub && val(&p, "DlssNr", "Enabled").is_none(), "{ctx}");
+                    }
+                    if p.mfg_unlocker && p.opti.is_some() {
+                        assert_eq!(p.opti, Some(Opti::Nightly), "{ctx}: MFG Unlocker plugin needs OptiScaler 10");
+                        assert_eq!(val(&p, "Plugins", "LoadAsiPlugins").as_deref(), Some("true"), "{ctx}");
+                    }
+                    assert_eq!(val(&p, "Plugins", "LoadReshade").is_some(), p.reshade && p.opti.is_some(), "{ctx}");
+                    assert_eq!(p.mfg_addon, p.reshade, "{ctx}: ReShade only comes for the RenoDX add-on");
+                    if let Some(c) = val(&p, "XeFG", "InterpolationCount") {
+                        assert_eq!(c.parse::<u8>().unwrap() + 1, effective, "{ctx}");
+                    }
+                    for (name, text) in &p.files {
+                        let j: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| panic!("{ctx}: {name}: {e}"));
+                        assert_eq!(j["multiplier"], u64::from(effective), "{ctx}");
+                    }
+                    assert!(p.notes.iter().all(|n| !n.trim().is_empty()), "{ctx}");
+                    let [up, nr, fg] = p.pipeline(tier, effective);
+                    assert!(!up.is_empty() && !nr.is_empty(), "{ctx}");
+                    assert_eq!(fg == "Desligado", effective == OFF, "{ctx}: {fg}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gtx_gets_fsr_fg_and_no_dlss5() {
+        let p = build(Tier::NvidiaOld, true, 2);
+        assert_eq!(p.opti, Some(Opti::Official));
+        assert_eq!(val(&p, "Upscalers", "Dx12Upscaler").as_deref(), Some("fsr31"));
+        assert_eq!(val(&p, "FrameGen", "FGOutput").as_deref(), Some("fsrfg"));
+        assert!(val(&p, "DlssNr", "Enabled").is_none());
+        assert_eq!(multipliers(Tier::NvidiaOld), &[0, 2]);
+    }
 }
