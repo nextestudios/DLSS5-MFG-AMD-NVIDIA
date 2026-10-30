@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "about": "Perfis por jogo usados pelo app. Edite e abra um PR: o app baixa a versão da main (cache de 1 dia). Campos: names (nomes do jogo), steam_appid, exes (nomes de .exe), proxy (dxgi.dll | version.dll | winmm.dll | winhttp.dll), anticheat (bloqueia o aplicar), notes (dicas mostradas na tela do jogo).",
+  "games": [
+    { "names": ["Fortnite"], "anticheat": "Easy Anti-Cheat / BattlEye" },
+    { "names": ["Apex Legends"], "steam_appid": 1172470, "anticheat": "Easy Anti-Cheat" },
+    { "names": ["PUBG: BATTLEGROUNDS", "PUBG"], "steam_appid": 578080, "anticheat": "BattlEye" },
+    { "names": ["Tom Clancy's Rainbow Six Siege", "Rainbow Six Siege X"], "steam_appid": 359550, "anticheat": "BattlEye" },
+    { "names": ["Destiny 2"], "steam_appid": 1085660, "anticheat": "BattlEye" },
+    { "names": ["Counter-Strike 2"], "steam_appid": 730, "anticheat": "VAC" },
+    { "names": ["Call of Duty", "Call of Duty: Black Ops 7", "Call of Duty: Black Ops 6", "Call of Duty: Warzone"], "anticheat": "Ricochet" },
+    { "names": ["Marvel Rivals"], "anticheat": "anti-cheat próprio" },
+    { "names": ["Battlefield 6", "Battlefield 2042"], "anticheat": "EA Javelin" },
+    { "names": ["THE FINALS"], "anticheat": "Easy Anti-Cheat" },
+    { "names": ["Dead by Daylight"], "steam_appid": 381210, "anticheat": "Easy Anti-Cheat" },
+    { "names": ["Rust"], "steam_appid": 252490, "anticheat": "Easy Anti-Cheat" },
+    { "names": ["DayZ"], "steam_appid": 221100, "anticheat": "BattlEye" },
+    { "names": ["Escape from Tarkov"], "anticheat": "BattlEye" },
+    { "names": ["ELDEN RING"], "notes": ["Desative o Easy Anti-Cheat e jogue offline antes de aplicar; online o mod pode dar banimento."] },
+    { "names": ["Resident Evil 4", "Resident Evil Village", "Monster Hunter Wilds", "Dragon's Dogma 2"], "notes": ["RE Engine: o XeSS-FG pode travar ou engasgar. O pacote DLSS Unlocked traz um REFramework corrigido (pasta REPatch) para isso."] }
+  ]
+}

@@ -66,13 +66,13 @@ pub fn download(url: &str, dest: &Path, referer: Option<&str>, log: Log) -> Resu
     fs::rename(&part, dest).map_err(|e| e.to_string())
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct Release {
     tag_name: String,
     assets: Vec<Asset>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct Asset {
     name: String,
     browser_download_url: String,
@@ -88,17 +88,44 @@ pub struct Fetched {
 /// Tag, file name and URL of the latest stable release asset whose name matches `pick`.
 /// Repos with only pre-releases (nightlies) have no "latest": then the newest release is used.
 fn latest_asset(repo: &str, pick: fn(&str) -> bool) -> Result<(String, Asset), String> {
-    let get = |path: &str| api(&format!("repos/{repo}/{path}"));
-    let rel: Release = match get("releases/latest") {
-        Err(ureq::Error::StatusCode(404)) => get("releases?per_page=1")
-            .and_then(|mut b| b.read_json::<Vec<Release>>())
-            .map_err(|e| e.to_string())?
-            .into_iter().next().ok_or("nenhuma release publicada")?,
-        r => r.and_then(|mut b| b.read_json()).map_err(|e| e.to_string())?,
-    };
+    let meta = cache_dir().join("meta");
+    let _ = fs::create_dir_all(&meta);
+    let rel = release_cached(&meta, repo, META_TTL_SECS, || {
+        let get = |path: &str| api(&format!("repos/{repo}/{path}"));
+        Ok(match get("releases/latest") {
+            Err(ureq::Error::StatusCode(404)) => get("releases?per_page=1")
+                .and_then(|mut b| b.read_json::<Vec<Release>>())
+                .map_err(|e| e.to_string())?
+                .into_iter().next().ok_or("nenhuma release publicada")?,
+            r => r.and_then(|mut b| b.read_json()).map_err(|e| e.to_string())?,
+        })
+    })?;
     let asset = rel.assets.into_iter().find(|a| pick(&a.name))
         .ok_or_else(|| format!("a release {} não tem o arquivo esperado", rel.tag_name))?;
     Ok((rel.tag_name, asset))
+}
+
+/// Latest stable tag that has an asset matching `pick`.
+pub fn latest_tag(repo: &str, pick: fn(&str) -> bool) -> Result<String, String> {
+    latest_asset(repo, pick).map(|(tag, _)| tag)
+}
+
+/// Release info is reused for an hour: applying to several games in a row (or "update all")
+/// would otherwise burn GitHub's 60 anonymous API calls per hour.
+const META_TTL_SECS: u64 = 3600;
+
+fn release_cached(dir: &Path, repo: &str, ttl: u64, fetch: impl FnOnce() -> Result<Release, String>) -> Result<Release, String> {
+    let file = dir.join(format!("{}.json", safe(repo)));
+    let fresh = fs::metadata(&file).and_then(|m| m.modified()).ok()
+        .and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() < ttl);
+    if fresh && let Some(r) = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+        return Ok(r);
+    }
+    let r = fetch()?;
+    if let Ok(t) = serde_json::to_string(&r) {
+        let _ = fs::write(&file, t);
+    }
+    Ok(r)
 }
 
 /// Newest cache entry starting with `prefix` whose last `__` part passes `ok`.
@@ -426,6 +453,22 @@ mod tests {
     fn remote_refuses_servers_without_ranges() {
         let err = Remote::open(&serve(pattern(1000, 0), false)).err().unwrap();
         assert!(err.contains("parcial"), "{err}");
+    }
+
+    #[test]
+    fn release_info_is_cached_for_the_ttl() {
+        let dir = std::env::temp_dir().join(format!("gpumods-meta-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let calls = std::cell::Cell::new(0);
+        let fetch = || {
+            calls.set(calls.get() + 1);
+            Ok(Release { tag_name: format!("v{}", calls.get()), assets: Vec::new() })
+        };
+        assert_eq!(release_cached(&dir, "a/b", 3600, fetch).unwrap().tag_name, "v1");
+        assert_eq!(release_cached(&dir, "a/b", 3600, fetch).unwrap().tag_name, "v1", "served from cache");
+        assert_eq!(release_cached(&dir, "a/b", 0, fetch).unwrap().tag_name, "v2", "expired: asks again");
+        assert!(release_cached(&dir, "c/d", 3600, || Err("offline".into())).is_err());
+        assert_eq!(calls.get(), 2);
     }
 
     #[test]

@@ -12,18 +12,25 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - **Adicionar jogo por pasta ou arrastando** a pasta/o `.exe` para a janela; o jogo fica salvo na biblioteca.
 - Progresso da instalação num cartão flutuante, com o log completo opcional.
 - Teste que renderiza a interface sem tela e gera os prints do README.
-- 42 testes automáticos (antes 15): todas as combinações de placa × DLSS 5 × multiplicador, download parcial de zip contra um servidor HTTP local, backup/remoção, lojas e interface.
+- **Escolha do proxy** por jogo ("Carregar como": `dxgi.dll`, `version.dll`, `winmm.dll`, `winhttp.dll`), mantida no "Atualizar todos".
+- **Perfis por jogo** (`profiles.json`, baixado do repositório com cache de 1 dia): proxy, anti-cheat e dicas.
+- **Bloqueio de anti-cheat**: Easy Anti-Cheat, BattlEye e EA Javelin detectados pelos arquivos do jogo; aplicar só depois de confirmar jogo offline.
+- **Atualização automática do app** com hash conferido.
+- Modo `--smoke-test`: o `.exe` final é testado num Windows no CI e antes de cada release.
+- Assinatura do `.exe` no workflow de release quando há certificado configurado.
+- 50 testes automáticos (antes 15): todas as combinações de placa × DLSS 5 × multiplicador, download parcial de zip contra um servidor HTTP local, backup/remoção, lojas e interface.
 - Teste de ponta a ponta com os pacotes reais (instala, reinstala e remove de um jogo falso) e workflow semanal que avisa quando um mod muda o formato das releases.
 - Versão do app no topo da janela.
 - Padrão de releases: validação de versão e CHANGELOG, zip com documentação, `SHA256SUMS.txt`, atestado de procedência do build e notas com modelo fixo.
 - Script `scripts/release.sh`, `RELEASING.md`, `CONTRIBUTING.md`, `SECURITY.md` e modelo de pull request.
 
 ### Corrigido
+- Placas virtuais (Microsoft Basic Render Driver em VMs) eram classificadas como Intel Arc; agora o app pede para escolher o modelo. Achado pelo teste de fumaça no Windows.
 - Seletor de placa sem nome para leitores de tela.
 - Placas profissionais NVIDIA (RTX 2000/4000/6000 Ada e RTX PRO Blackwell) eram classificadas como GTX ou RTX 20/30.
 
 ### Alterado
-- Chamadas à API do GitHub usam `GITHUB_TOKEN` quando ele existe (CI).
+- Chamadas à API do GitHub usam `GITHUB_TOKEN` quando ele existe (CI) e ficam em cache por 1 hora.
 
 ## [1.0.0] - 2026-10-29
 
