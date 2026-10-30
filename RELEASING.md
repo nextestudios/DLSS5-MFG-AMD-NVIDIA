@@ -25,7 +25,8 @@ O projeto segue [SemVer](https://semver.org/lang/pt-BR/) (`MAIOR.MENOR.CORREÇÃ
    - roda clippy (`-D warnings`) e todos os testes no Windows;
    - roda o `.exe` final em modo `--smoke-test` (aplicar/remover real num jogo falso);
    - assina o `.exe`, se houver certificado;
-   - gera `DLSS5-FrameGen.exe`, `DLSS5-FrameGen-vX.Y.Z-windows-x64.zip` (com README, LICENSE, CHANGELOG) e `SHA256SUMS.txt`;
+   - gera o instalador `DLSS5-FrameGen-Setup.exe` (Inno Setup, [`installer/`](installer/)), instala, roda o teste de fumaça no app instalado e desinstala; testa também o modo portátil;
+   - gera `DLSS5-FrameGen.exe`, `DLSS5-FrameGen-vX.Y.Z-portable-win-x64.zip` (com `portable.txt`, README, LICENSE, CHANGELOG) e `SHA256SUMS.txt`;
    - cria o atestado de procedência do build (`gh attestation verify`);
    - publica a release com as notas no modelo `.github/release-template.md`.
 

@@ -5,6 +5,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+### Adicionado
+- **Instalador** `DLSS5-FrameGen-Setup.exe` (Inno Setup, em português): atalho no Menu Iniciar e opcional na área de trabalho, desinstalação pelo Windows. Instala por usuário em `%LOCALAPPDATA%\Programs\DLSS5-FrameGen`, sem Administrador, para a atualização automática continuar funcionando.
+- **Versão portátil** `DLSS5-FrameGen-vX.Y.Z-portable-win-x64.zip`: com `portable.txt` ao lado do `.exe`, cache, jogos adicionados e configurações ficam na pasta `GpuMods` ao lado dele.
+- O CI e a release geram o instalador, instalam em silêncio, rodam o teste de fumaça no app instalado e desinstalam; a versão portátil também é testada.
+
 ## [1.2.0] - 2026-10-30
 
 ### Corrigido

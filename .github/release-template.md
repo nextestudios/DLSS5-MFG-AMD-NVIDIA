@@ -6,8 +6,9 @@
 
 | Arquivo | Para quê |
 |---|---|
-| **`DLSS5-FrameGen.exe`** | O app. Roda direto, sem instalar. |
-| `DLSS5-FrameGen-{{VERSION}}-windows-x64.zip` | O app com README, licença e CHANGELOG. |
+| **`DLSS5-FrameGen-Setup.exe`** | Instalador: atalho no Menu Iniciar (e na área de trabalho, se quiser) e desinstalação pelo Windows. Não pede Administrador. |
+| `DLSS5-FrameGen-{{VERSION}}-portable-win-x64.zip` | Versão portátil: descompacte onde quiser (até num pendrive). Cache e configurações ficam na mesma pasta. |
+| `DLSS5-FrameGen.exe` | Só o app, roda direto sem instalar (é o arquivo que a atualização automática usa). |
 | `SHA256SUMS.txt` | Hashes para conferir os arquivos. |
 
 **Requisitos:** Windows 10/11 x64 · DirectX 12 · placa NVIDIA RTX/GTX, AMD RX 6000+ ou Intel Arc · internet na primeira aplicação.
@@ -22,7 +23,7 @@ No PowerShell: `Get-FileHash .\DLSS5-FrameGen.exe` · Procedência do build (Git
 
 ### Como atualizar
 
-Baixe o novo `.exe` e substitua o antigo. Depois clique em **Atualizar todos** para levar as versões mais novas dos mods a todos os jogos já modados.
+O app se atualiza sozinho (instalado, portátil ou `.exe` solto). Para atualizar à mão, rode o instalador novo ou troque o `.exe`. Depois clique em **Atualizar todos** para levar as versões mais novas dos mods a todos os jogos já modados.
 
 ### Avisos
 

@@ -26,10 +26,17 @@ jobs:
           $p = Start-Process target/release/gpu-mods-app.exe -ArgumentList '--smoke-test', "$env:RUNNER_TEMP\smoke.txt" -Wait -PassThru
           Get-Content "$env:RUNNER_TEMP\smoke.txt"
           exit $p.ExitCode
+      - name: Instalador e versão portátil (gera e testa)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./installer/build.ps1 -Version "$(Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1)"
       - uses: actions/upload-artifact@v7
         with:
           name: DLSS5-FrameGen
-          path: target/release/gpu-mods-app.exe
+          path: |
+            target/release/gpu-mods-app.exe
+            dist/DLSS5-FrameGen-Setup.exe
 
   changelog:
     if: github.event_name == 'pull_request'
