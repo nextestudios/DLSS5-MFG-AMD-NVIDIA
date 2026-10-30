@@ -29,6 +29,10 @@ fn api(path: &str) -> Result<ureq::Body, ureq::Error> {
     req.call().map(|r| r.into_body())
 }
 
+pub fn get_json(url: &str) -> Result<serde_json::Value, String> {
+    agent().get(url).header("User-Agent", UA).call().and_then(|r| r.into_body().read_json()).map_err(|e| e.to_string())
+}
+
 pub fn cache_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let dir = base.join("GpuMods").join("cache");

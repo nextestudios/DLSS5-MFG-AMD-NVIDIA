@@ -2,11 +2,64 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Found {
     pub name: String,
     pub store: &'static str,
     pub dir: PathBuf,
+    /// Steam games know their id; it gives the cover art.
+    pub steam_appid: Option<u32>,
+}
+
+/// Library folder names that are never the game's own name.
+const GENERIC: [&str; 9] = ["bin", "bin64", "x64", "win64", "binaries", "content", "game", "retail", "win_x64"];
+
+/// A readable name for a folder picked by hand: the first folder above bin/x64/Binaries/Content...
+pub fn display_name(dir: &Path) -> String {
+    dir.ancestors().filter_map(|a| a.file_name()).map(|f| f.to_string_lossy().into_owned())
+        .find(|n| !GENERIC.contains(&n.to_lowercase().as_str()))
+        .unwrap_or_else(|| dir.display().to_string())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Manual {
+    name: String,
+    dir: PathBuf,
+}
+
+fn manual_file() -> PathBuf {
+    crate::net::cache_dir().parent().map_or_else(std::env::temp_dir, Path::to_path_buf).join("manual-games.json")
+}
+
+fn load_manual(file: &Path) -> Vec<Found> {
+    let list: Vec<Manual> = fs::read_to_string(file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    list.into_iter().map(|m| Found { name: m.name, store: "Manual", dir: m.dir, steam_appid: None }).collect()
+}
+
+fn save_manual(file: &Path, games: &[Found]) -> Result<(), String> {
+    let list: Vec<Manual> = games.iter().map(|g| Manual { name: g.name.clone(), dir: g.dir.clone() }).collect();
+    fs::write(file, serde_json::to_string_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+fn add_manual_to(file: &Path, dir: &Path) -> Result<Found, String> {
+    let mut list = load_manual(file);
+    let found = Found { name: display_name(dir), store: "Manual", dir: dir.to_path_buf(), steam_appid: None };
+    list.retain(|g| g.dir != found.dir);
+    list.push(found.clone());
+    save_manual(file, &list)?;
+    Ok(found)
+}
+
+/// Remembers a game added by hand (folder picker or drag and drop) so it shows up in the library next time.
+pub fn add_manual(dir: &Path) -> Result<Found, String> {
+    add_manual_to(&manual_file(), dir)
+}
+
+pub fn remove_manual(dir: &Path) -> Result<(), String> {
+    let file = manual_file();
+    let mut list = load_manual(&file);
+    list.retain(|g| g.dir != dir);
+    save_manual(&file, &list)
 }
 
 /// Every `"key" "value"` pair in a Steam .vdf/.acf file, unescaped.
@@ -38,7 +91,8 @@ fn steam(root: &Path) -> Vec<Found> {
             if ["Steamworks", "Proton", "Steam Linux Runtime", "SteamVR"].iter().any(|s| name.starts_with(s)) {
                 continue;
             }
-            out.push(Found { name, store: "Steam", dir: lib.join("steamapps/common").join(dir) });
+            let steam_appid = get("appid").and_then(|a| a.parse().ok());
+            out.push(Found { name, store: "Steam", dir: lib.join("steamapps/common").join(dir), steam_appid });
         }
     }
     out
@@ -49,7 +103,7 @@ fn epic(manifests: &Path) -> Vec<Found> {
         .filter(|e| e.path().extension().is_some_and(|x| x == "item"))
         .filter_map(|e| {
             let j: serde_json::Value = serde_json::from_str(&fs::read_to_string(e.path()).ok()?).ok()?;
-            Some(Found { name: j["DisplayName"].as_str()?.into(), store: "Epic", dir: j["InstallLocation"].as_str()?.into() })
+            Some(Found { name: j["DisplayName"].as_str()?.into(), store: "Epic", dir: j["InstallLocation"].as_str()?.into(), steam_appid: None })
         })
         .collect()
 }
@@ -61,7 +115,7 @@ fn xbox(drive: &Path) -> Vec<Found> {
     String::from_utf16_lossy(&wide).split('\0').filter(|s| !s.is_empty())
         .flat_map(|lib| fs::read_dir(drive.join(lib)).into_iter().flatten().flatten())
         .filter(|e| e.path().join("Content").is_dir())
-        .map(|e| Found { name: e.file_name().to_string_lossy().into(), store: "Xbox", dir: e.path().join("Content") })
+        .map(|e| Found { name: e.file_name().to_string_lossy().into(), store: "Xbox", dir: e.path().join("Content"), steam_appid: None })
         .collect()
 }
 
@@ -112,7 +166,7 @@ fn registry_store(base: &str, value: &str, name_value: Option<&str>, store: &'st
             let dir = PathBuf::from(reg::string(reg::HKLM, &path, value)?);
             let name = name_value.and_then(|n| reg::string(reg::HKLM, &path, n))
                 .unwrap_or_else(|| dir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or(k));
-            Some(Found { name, store, dir })
+            Some(Found { name, store, dir, steam_appid: None })
         })
         .collect()
 }
@@ -134,12 +188,14 @@ pub fn scan() -> Vec<Found> {
     for d in b'C'..=b'Z' {
         all.extend(xbox(Path::new(&format!("{}:\\", d as char))));
     }
+    all.extend(load_manual(&manual_file()));
     finish(all)
 }
 
+/// Stores only exist on Windows; elsewhere the library has the games added by hand.
 #[cfg(not(windows))]
 pub fn scan() -> Vec<Found> {
-    Vec::new()
+    finish(load_manual(&manual_file()))
 }
 
 /// Drops missing folders and duplicates (same folder from two stores), sorted by name.
@@ -162,12 +218,13 @@ mod tests {
         fs::create_dir_all(lib2.join("steamapps/common/Proton 9.0")).unwrap();
         fs::write(root.join("steamapps/libraryfolders.vdf"),
             format!("\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}\n", lib2.display().to_string().replace('\\', "\\\\"))).unwrap();
-        fs::write(root.join("steamapps/appmanifest_1.acf"), "\"AppState\"\n{\n\t\"name\"\t\t\"Cyberpunk 2077\"\n\t\"installdir\"\t\t\"Cyber\"\n}\n").unwrap();
+        fs::write(root.join("steamapps/appmanifest_1.acf"), "\"AppState\"\n{\n\t\"appid\"\t\t\"1091500\"\n\t\"name\"\t\t\"Cyberpunk 2077\"\n\t\"installdir\"\t\t\"Cyber\"\n}\n").unwrap();
         fs::write(lib2.join("steamapps/appmanifest_2.acf"), "\t\"name\"\t\t\"Proton 9.0\"\n\t\"installdir\"\t\t\"Proton 9.0\"\n").unwrap();
         let g = finish(steam(&root));
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].name, "Cyberpunk 2077");
         assert_eq!(g[0].dir, root.join("steamapps/common/Cyber"));
+        assert_eq!(g[0].steam_appid, Some(1091500));
     }
 
     #[test]
@@ -197,7 +254,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("gpumods-finish-{}", std::process::id()));
         fs::create_dir_all(d.join("a")).unwrap();
         fs::create_dir_all(d.join("b")).unwrap();
-        let f = |name: &str, store, dir: &str| Found { name: name.into(), store, dir: d.join(dir) };
+        let f = |name: &str, store, dir: &str| Found { name: name.into(), store, dir: d.join(dir), steam_appid: None };
         let out = finish(vec![f("zeta", "Steam", "a"), f("Alpha", "Epic", "b"), f("Zeta again", "GOG", "a"), f("gone", "EA", "missing")]);
         let names: Vec<&str> = out.iter().map(|g| g.name.as_str()).collect();
         assert_eq!(names, ["Alpha", "zeta"]);
@@ -218,5 +275,28 @@ mod tests {
         assert_eq!(x.len(), 1);
         assert_eq!(x[0].name, "Halo");
         assert!(xbox(&d.join("no-drive")).is_empty());
+    }
+
+    #[test]
+    fn display_name_skips_generic_folders() {
+        assert_eq!(display_name(Path::new("/g/Cyberpunk 2077/bin/x64")), "Cyberpunk 2077");
+        assert_eq!(display_name(Path::new("/x/XboxGames/Forza Horizon 5/Content")), "Forza Horizon 5");
+        assert_eq!(display_name(Path::new("/g/Stalker2/Binaries/Win64")), "Stalker2");
+        assert_eq!(display_name(Path::new("/g/Elden Ring/Game")), "Elden Ring");
+    }
+
+    #[test]
+    fn manual_games_round_trip() {
+        let d = std::env::temp_dir().join(format!("gpumods-manual-{}", std::process::id()));
+        let game = d.join("Alan Wake 2");
+        fs::create_dir_all(&game).unwrap();
+        let file = d.join("manual.json");
+        assert!(load_manual(&file).is_empty());
+        let a = add_manual_to(&file, &game).unwrap();
+        assert_eq!((a.name.as_str(), a.store), ("Alan Wake 2", "Manual"));
+        add_manual_to(&file, &game).unwrap();
+        assert_eq!(load_manual(&file).len(), 1, "adding twice keeps one");
+        fs::write(&file, "garbage").unwrap();
+        assert!(load_manual(&file).is_empty(), "a broken file is ignored, not fatal");
     }
 }

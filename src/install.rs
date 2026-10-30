@@ -25,9 +25,6 @@ pub fn read_state(game_dir: &Path) -> Option<State> {
     serde_json::from_str(&fs::read_to_string(game_dir.join(STATE)).ok()?).ok()
 }
 
-pub fn has_mods(game_dir: &Path) -> bool {
-    game_dir.join(MANIFEST).exists()
-}
 const BACKUP: &str = ".gpumods-backup";
 const PROXIES: [&str; 7] = ["dxgi.dll", "winmm.dll", "version.dll", "dbghelp.dll", "d3d12.dll", "wininet.dll", "winhttp.dll"];
 const SKIP_EXE: [&str; 19] = [
@@ -505,7 +502,7 @@ mod tests {
         g.write_file(STATE, r#"{"gpu":"NVIDIA RTX 40","dlss5":true,"mult":4,"versions":{"OptiScaler":"v1"},"when":1}"#).unwrap();
         g.save().unwrap();
         assert_eq!(read_state(&game).unwrap().mult, 4);
-        assert!(has_mods(&game));
+        assert!(game.join(MANIFEST).exists());
 
         uninstall(&game, &log).unwrap();
         assert!(read_state(&game).is_none());
@@ -555,7 +552,7 @@ mod tests {
         fs::write(game.join(MANIFEST), "dxgi.dll\r\nmissing.dll").unwrap();
         fs::write(game.join("dxgi.dll"), "x").unwrap();
         uninstall(&game, &|_| {}).unwrap();
-        assert!(!game.join("dxgi.dll").exists() && !has_mods(&game));
+        assert!(!game.join("dxgi.dll").exists() && !game.join(MANIFEST).exists());
     }
 
     #[test]

@@ -9,7 +9,9 @@ App para Windows que coloca **DLSS 5 (Neural Rendering)** e **Frame Generation d
 
 *English: a one-click Windows installer for DLSS 5 Neural Rendering and 2x–6x multi frame generation on NVIDIA, AMD and Intel GPUs. It finds your installed games, always fetches the newest community mods (OptiScaler, MFG Unlocker, DLSS Unlocked, NeuralHub…), verifies their SHA-256 and installs or removes them cleanly.*
 
-![Tela do app](docs/screenshot.png)
+![Biblioteca de jogos](docs/screenshot.png)
+
+![Tela do jogo](docs/screenshot-jogo.png)
 
 ## Download
 
@@ -19,12 +21,14 @@ Baixe o **`DLSS5-FrameGen.exe`** na [última release](https://github.com/nextest
 
 ## Como usar
 
-1. Abra o app. A placa de vídeo é detectada sozinha (dá para trocar o modelo no topo).
-2. Escolha o jogo na **Biblioteca** (Steam, Epic, GOG, Ubisoft, EA, Xbox e Rockstar são lidos automaticamente) ou aponte a pasta / o `.exe`.
-3. Ligue o **DLSS 5** e escolha o **Frame Generation** (Off, 2x, 3x, 4x, 6x).
-4. Confira o **caminho da imagem** e a **linha do tempo de quadros** (quadros reais × gerados e o FPS final).
-5. Clique em **Aplicar no jogo**. Se a pasta for protegida, o app pede permissão de Administrador.
-6. No jogo, ative DLSS/FSR/XeSS e o Frame Generation no menu de vídeo.
+1. Abra o app. A placa é detectada sozinha e os jogos de Steam, Epic, GOG, Ubisoft, EA, Xbox e Rockstar aparecem na **biblioteca**, com capa.
+2. Escolha no topo o que quer: **DLSS 5** e **Frame Generation** (Off, 2x, 3x, 4x, 6x).
+3. Aplique de um destes jeitos:
+   - **Um clique:** passe o mouse na capa e clique em **⚡ Aplicar**.
+   - **Pela tela do jogo:** clique na capa, confira o caminho da imagem e a linha do tempo de quadros e clique em **Aplicar neste jogo**.
+   - **Jogo fora das lojas:** clique em **+ Adicionar jogo** e escolha a pasta, ou **arraste a pasta / o `.exe`** para a janela. Ele fica salvo na biblioteca.
+4. Se a pasta for protegida, o app pede permissão de Administrador.
+5. No jogo, ative DLSS/FSR/XeSS e o Frame Generation no menu de vídeo.
 
 **Remover do jogo** apaga só o que o app colocou e devolve os arquivos originais. **Atualizar todos** reinstala, em todos os jogos modados, as mesmas escolhas com as versões mais novas.
 
@@ -81,7 +85,7 @@ cargo xwin build --release --target x86_64-pc-windows-msvc   # do macOS/Linux
 
 ## Testes e qualidade
 
-- `cargo test`: 36 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
+- `cargo test`: 42 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
 - `cargo test -- --ignored`: baixa os pacotes reais, aplica num jogo falso (RTX 40, RX 7000, GTX, Intel), reinstala e remove, conferindo que nada sobra.
 - CI no Windows a cada push e PR (clippy `-D warnings` + testes); toda semana o workflow **Fontes externas** roda os testes com os pacotes reais e avisa se algum mod mudou.
 
