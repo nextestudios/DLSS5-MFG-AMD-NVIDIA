@@ -5,6 +5,9 @@ mod gpu;
 mod install;
 mod net;
 mod plan;
+mod profiles;
+mod smoke;
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -25,8 +28,9 @@ const GAP: f32 = 18.0;
 enum Msg {
     Log(String),
     Done(Result<(), String>),
-    Library(Vec<Entry>),
+    Library(Vec<Entry>, Vec<profiles::Profile>),
     Art(PathBuf, art::Art),
+    Update(String),
 }
 
 /// A library game, the folder the mods go in, what is installed there and its cover art.
@@ -35,13 +39,25 @@ struct Entry {
     dir: Option<PathBuf>,
     state: Option<install::State>,
     art: art::Art,
+    profile: Option<profiles::Profile>,
+    /// From the game's files or its profile; blocks applying until the user confirms.
+    anticheat: Option<String>,
 }
 
 impl Entry {
-    fn new(found: games::Found) -> Entry {
+    fn new(found: games::Found, profiles: &[profiles::Profile]) -> Entry {
         let dir = install::resolve_game_dir(&found.dir).ok();
         let state = dir.as_deref().and_then(install::read_state);
-        Entry { found, dir, state, art: art::Art::default() }
+        let profile = profiles::find(profiles, &found, dir.as_deref()).cloned();
+        let anticheat = profiles::detect_anticheat(&found.dir).map(str::to_string)
+            .or_else(|| profile.as_ref().and_then(|p| p.anticheat.clone()));
+        Entry { found, dir, state, art: art::Art::default(), profile, anticheat }
+    }
+
+    /// The proxy to use: the one this game was installed with, else its profile's (None = automatic).
+    fn proxy(&self) -> Option<&'static str> {
+        let want = self.state.as_ref().and_then(|s| s.proxy.clone()).or_else(|| self.profile.as_ref().and_then(|p| p.proxy.clone()))?;
+        install::PROXY_CHOICES.iter().copied().find(|p| *p == want)
     }
 }
 
@@ -62,7 +78,10 @@ enum View {
 /// What the user clicked this frame; handled after drawing so nothing is borrowed.
 enum Act {
     Open(PathBuf),
+    /// Grid / context menu: the game's saved proxy.
     Quick(PathBuf),
+    /// Game page: the proxy picked there.
+    ApplyHere(PathBuf),
     RemoveMods(PathBuf),
     Forget(PathBuf),
     OpenFolder(PathBuf),
@@ -89,6 +108,15 @@ struct App {
     filter: Filter,
     view: View,
     pending_open: Option<PathBuf>,
+    profiles: Vec<profiles::Profile>,
+    /// Proxy picked on the game page (None = automatic).
+    proxy: Option<&'static str>,
+    /// Games whose anti-cheat warning the user accepted this session.
+    anticheat_ok: std::collections::HashSet<PathBuf>,
+    /// Newer app release, if any.
+    update: Option<String>,
+    /// Restart into the new exe when the running task (the app update) succeeds.
+    relaunch: bool,
     base_fps: u32,
     task: Option<Task>,
     fade: Option<TextureHandle>,
@@ -148,8 +176,9 @@ fn file_uri(p: &Path) -> String {
 
 fn scan_library(tx: Sender<Msg>, ctx: egui::Context) {
     std::thread::spawn(move || {
-        let entries = games::scan().into_iter().map(Entry::new).collect();
-        let _ = tx.send(Msg::Library(entries));
+        let profiles = profiles::load();
+        let entries = games::scan().into_iter().map(|g| Entry::new(g, &profiles)).collect();
+        let _ = tx.send(Msg::Library(entries, profiles));
         ctx.request_repaint();
     });
 }
@@ -174,6 +203,13 @@ impl App {
         let (tx, rx) = channel();
         style(ctx, accent(gpu.tier));
         scan_library(tx.clone(), ctx.clone());
+        let (utx, uctx) = (tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            if let Some(tag) = update::check() {
+                let _ = utx.send(Msg::Update(tag));
+                uctx.request_repaint();
+            }
+        });
         App {
             dlss5: gpu.tier.is_rtx(),
             mult: default_mult(gpu.tier),
@@ -185,6 +221,11 @@ impl App {
             filter: Filter::All,
             view: View::Library,
             pending_open: game_arg,
+            profiles: Vec::new(),
+            proxy: None,
+            anticheat_ok: Default::default(),
+            update: None,
+            relaunch: false,
             base_fps: 60,
             task: None,
             fade: None,
@@ -209,7 +250,7 @@ impl App {
             Ok(found) => {
                 fetch_art(vec![found.clone()], self.tx.clone(), ctx.clone());
                 let key = found.dir.clone();
-                self.library.push(Entry::new(found));
+                self.library.push(Entry::new(found, &self.profiles));
                 self.select(&key);
             }
             Err(e) => self.notify("Não deu para adicionar", Err(e)),
@@ -218,6 +259,7 @@ impl App {
 
     /// Selecting a modded game brings back the choices it was installed with.
     fn select(&mut self, key: &Path) {
+        self.proxy = self.entry(key).and_then(Entry::proxy);
         if let Some(st) = self.entry(key).and_then(|e| e.state.clone()) {
             self.dlss5 = st.dlss5 && plan::dlss5_supported(self.gpu.tier);
             if plan::multipliers(self.gpu.tier).contains(&st.mult) {
@@ -250,14 +292,20 @@ impl App {
         self.task.as_ref().is_some_and(|t| t.done.is_none())
     }
 
-    fn apply(&mut self, ctx: &egui::Context, key: &Path) {
+    fn apply(&mut self, ctx: &egui::Context, key: &Path, proxy: Option<&'static str>) {
         if self.busy() {
+            return;
+        }
+        if let Some(ac) = self.entry(key).and_then(|e| e.anticheat.clone()).filter(|_| !self.anticheat_ok.contains(key)) {
+            // Never one-click into an anti-cheat game: show the page with the warning instead.
+            self.select(key);
+            self.notify("Aplicar bloqueado", Err(format!("{ac} detectado. Confirme na tela do jogo que vai jogar offline.")));
             return;
         }
         let plan = plan::build(self.gpu.tier, self.dlss5, self.mult);
         let (gpu, dlss5, mult) = (self.gpu.clone(), self.dlss5, self.mult);
         if plan.neuralhub {
-            self.run(ctx, "DLSS 5 na AMD (NeuralHub)".into(), move |log| install::apply(&gpu, dlss5, mult, Path::new(""), log));
+            self.run(ctx, "DLSS 5 na AMD (NeuralHub)".into(), move |log| install::apply(&gpu, dlss5, mult, None, Path::new(""), log));
             return;
         }
         let Some(e) = self.entry(key) else { return };
@@ -274,7 +322,7 @@ impl App {
             }
             return;
         }
-        self.run(ctx, format!("Aplicando em {name}"), move |log| install::apply(&gpu, dlss5, mult, &dir, log));
+        self.run(ctx, format!("Aplicando em {name}"), move |log| install::apply(&gpu, dlss5, mult, proxy, &dir, log));
     }
 
     fn refresh_states(&mut self) {
@@ -286,7 +334,11 @@ impl App {
     fn handle(&mut self, act: Act, ctx: &egui::Context) {
         match act {
             Act::Open(k) => self.select(&k),
-            Act::Quick(k) => self.apply(ctx, &k),
+            Act::Quick(k) => {
+                let proxy = self.entry(&k).and_then(Entry::proxy);
+                self.apply(ctx, &k, proxy);
+            }
+            Act::ApplyHere(k) => self.apply(ctx, &k, self.proxy),
             Act::RemoveMods(k) => {
                 if let Some((name, dir)) = self.entry(&k).and_then(|e| Some((e.found.name.clone(), e.dir.clone()?))) {
                     self.run(ctx, format!("Removendo de {name}"), move |log| install::uninstall(&dir, log));
@@ -410,6 +462,9 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                 let edge = if t > 0.0 { acc.gamma_multiply(0.4 + 0.6 * t) } else { Color32::from_white_alpha(18) };
                 p.rect_stroke(card, 14, Stroke::new(1.0 + t, edge), StrokeKind::Inside);
                 chip(p, card.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, store_label(e.found.store), Color32::BLACK, store_color(e.found.store));
+                if e.anticheat.is_some() {
+                    chip(p, card.left_top() + vec2(8.0, 32.0), Align2::LEFT_TOP, "⚠ anti-cheat", Color32::WHITE, Color32::from_rgb(200, 40, 50));
+                }
                 if let Some(st) = &e.state {
                     let label = if st.mult > 0 { format!("✔ {}x", st.mult) } else { "✔ MOD".into() };
                     chip(p, card.right_top() + vec2(-8.0, 8.0), Align2::RIGHT_TOP, &label, Color32::BLACK, acc);
@@ -419,7 +474,8 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                 if t > 0.01 {
                     let over = resp.hover_pos().is_some_and(|h| quick.contains(h));
                     p.rect_filled(quick, 10, acc.gamma_multiply(if over { 1.0 } else { 0.8 } * t));
-                    p.text(quick.center(), Align2::CENTER_CENTER, "⚡ Aplicar", FontId::proportional(14.0), BG);
+                    let label = if e.anticheat.is_some() { "⚠ Ver aviso" } else { "⚡ Aplicar" };
+                    p.text(quick.center(), Align2::CENTER_CENTER, label, FontId::proportional(14.0), BG);
                 } else {
                     let g = p.layout(e.found.name.clone(), FontId::proportional(13.0), Color32::WHITE, card_w - 24.0);
                     p.galley(pos2(card.left() + 12.0, card.bottom() - 12.0 - g.size().y), g, Color32::WHITE);
@@ -558,6 +614,7 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
         return;
     };
     let (name, store, dir, state, art) = (e.found.name.clone(), e.found.store, e.dir.clone(), e.state.clone(), e.art.clone());
+    let (anticheat, tips) = (e.anticheat.clone(), e.profile.as_ref().map(|p| p.notes.clone()).unwrap_or_default());
     let tex = app.fade.clone().expect("fade texture");
     let plan = plan::build(app.gpu.tier, app.dlss5, app.mult);
 
@@ -641,9 +698,37 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
             section(&mut c[1], "Instalação", |ui| {
                 let label = if plan.neuralhub { "⚡  Instalar DLSS 5 (NeuralHub)" } else { "⚡  Aplicar neste jogo" };
                 let busy = app.busy();
+                let mut blocked = false;
+                if let Some(ac) = &anticheat {
+                    let mut ok = app.anticheat_ok.contains(key);
+                    egui::Frame::new().fill(Color32::from_rgb(70, 18, 24)).stroke(Stroke::new(1.0, Color32::from_rgb(220, 60, 70))).corner_radius(12).inner_margin(12).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new(format!("⚠  Anti-cheat detectado: {ac}")).strong().color(Color32::WHITE));
+                        ui.label(RichText::new("DLLs injetadas podem dar banimento. O aplicar fica bloqueado até você confirmar.").size(12.0).color(Color32::from_gray(220)));
+                        if ui.checkbox(&mut ok, "Vou jogar só offline / com o anti-cheat desligado").changed() {
+                            if ok {
+                                app.anticheat_ok.insert(key.to_path_buf());
+                            } else {
+                                app.anticheat_ok.remove(key);
+                            }
+                        }
+                    });
+                    blocked = !ok;
+                }
                 let go = egui::Button::new(RichText::new(label).size(18.0).strong().color(BG)).fill(acc).min_size(vec2(ui.available_width(), 56.0));
-                if ui.add_enabled(!busy && (plan.neuralhub || dir.is_some()), go).clicked() {
-                    acts.push(Act::Quick(key.to_path_buf()));
+                if ui.add_enabled(!busy && !blocked && (plan.neuralhub || dir.is_some()), go).clicked() {
+                    acts.push(Act::ApplyHere(key.to_path_buf()));
+                }
+                if !plan.neuralhub {
+                    ui.horizontal(|ui| {
+                        let heading = ui.label(RichText::new("Carregar como").size(12.0).color(MUTED));
+                        egui::ComboBox::from_id_salt("proxy").selected_text(app.proxy.unwrap_or("Automático (dxgi.dll)")).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut app.proxy, None, "Automático (dxgi.dll)");
+                            for p in install::PROXY_CHOICES {
+                                ui.selectable_value(&mut app.proxy, Some(p), p);
+                            }
+                        }).response.labelled_by(heading.id).on_hover_text("Se o mod não aparecer no jogo, tente outro nome: alguns jogos não carregam dxgi.dll.");
+                    });
                 }
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!busy && state.is_some(), egui::Button::new("Remover mods")).clicked() {
@@ -698,6 +783,13 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                 });
                 for n in &plan.notes {
                     ui.label(RichText::new(format!("•  {n}")).size(12.0).color(MUTED));
+                }
+                if !tips.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new("DICAS PARA ESTE JOGO").size(11.0).color(MUTED).strong());
+                    for t in &tips {
+                        ui.label(RichText::new(format!("•  {t}")).size(12.0).color(Color32::from_rgb(250, 204, 21)));
+                    }
                 }
                 ui.label(RichText::new("•  Não use em jogos online com anti-cheat. Todo download tem o SHA-256 conferido.").size(12.0).color(MUTED));
             });
@@ -772,6 +864,18 @@ fn rail(ui: &mut egui::Ui, app: &mut App, acc: Color32, ctx: &egui::Context) {
             style(ctx, accent(app.gpu.tier));
         }
     });
+    if let Some(tag) = app.update.clone() {
+        ui.add_space(10.0);
+        egui::Frame::new().fill(Color32::from_rgb(20, 40, 70)).stroke(Stroke::new(1.0, Color32::from_rgb(70, 140, 230))).corner_radius(14).inner_margin(12).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new(format!("Nova versão {tag}")).strong().color(Color32::WHITE));
+            let b = egui::Button::new(RichText::new("Atualizar o app").strong()).min_size(vec2(ui.available_width(), 30.0));
+            if ui.add_enabled(!app.busy(), b).on_hover_text("Baixa a versão nova (SHA-256 conferido) e reabre o app").clicked() {
+                app.relaunch = true;
+                app.run(ctx, format!("Atualizando o app para {tag}"), |log| update::install(log).map(|_| ()));
+            }
+        });
+    }
     ui.add_space(14.0);
     ui.label(RichText::new("BIBLIOTECA").size(10.0).color(MUTED).strong());
     let mut stores: Vec<&'static str> = app.library.iter().map(|e| e.found.store).collect();
@@ -886,11 +990,17 @@ impl App {
                         if let Err(e) = &r {
                             t.log.push(format!("ERRO: {e}"));
                         }
+                        if self.relaunch && r.is_ok() && let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new(exe).spawn();
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        self.relaunch = false;
                         t.done = Some(r);
                     }
                     self.refresh_states();
                 }
-                Msg::Library(mut l) => {
+                Msg::Library(mut l, profiles) => {
+                    self.profiles = profiles;
                     // Keep art already fetched.
                     for e in &mut l {
                         if let Some(old) = self.library.iter().find(|o| o.found.dir == e.found.dir) {
@@ -904,6 +1014,7 @@ impl App {
                         self.open(&p, &ctx);
                     }
                 }
+                Msg::Update(tag) => self.update = Some(tag),
                 Msg::Art(key, a) => {
                     if let Some(e) = self.library.iter_mut().find(|e| e.found.dir == key) {
                         e.art = a;
@@ -974,12 +1085,13 @@ fn relaunch_as_admin(_: &Path) -> bool {
 }
 
 fn main() -> eframe::Result {
-    let mut args = std::env::args().skip(1);
-    let game = std::iter::from_fn(|| args.next())
-        .collect::<Vec<_>>()
-        .windows(2)
-        .find(|w| w[0] == "--game")
-        .map(|w| PathBuf::from(&w[1]));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let arg = |flag: &str| args.windows(2).find(|w| w[0] == flag).map(|w| PathBuf::from(&w[1]));
+    if let Some(report) = arg("--smoke-test") {
+        std::process::exit(if smoke::run(&report) { 0 } else { 1 });
+    }
+    update::cleanup();
+    let game = arg("--game");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1320.0, 840.0]).with_min_inner_size([980.0, 640.0]).with_drag_and_drop(true),
         ..Default::default()
@@ -1027,7 +1139,7 @@ mod tests {
         let home = std::env::temp_dir().join(format!("gpumods-shots-{}", std::process::id()));
         let games = home.join("Games");
         let names = ["Cyberpunk 2077", "Hogwarts Legacy", "Forza Horizon 5", "Alan Wake 2", "ELDEN RING", "Black Myth Wukong",
-            "Red Dead Redemption 2", "Baldur's Gate 3", "Indiana Jones and the Great Circle", "Starfield", "Hades II"];
+            "Red Dead Redemption 2", "Baldur's Gate 3", "Apex Legends", "Indiana Jones and the Great Circle", "Starfield", "Hades II"];
         let list: Vec<_> = names.iter().map(|n| {
             std::fs::create_dir_all(games.join(n)).unwrap();
             std::fs::write(games.join(n).join("game.exe"), "x").unwrap();

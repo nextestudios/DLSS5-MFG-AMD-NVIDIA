@@ -23,9 +23,22 @@ O projeto segue [SemVer](https://semver.org/lang/pt-BR/) (`MAIOR.MENOR.CORREÇÃ
 3. A tag dispara `.github/workflows/release.yml`, que:
    - confere se a tag bate com o `Cargo.toml` e se o CHANGELOG tem a seção;
    - roda clippy (`-D warnings`) e todos os testes no Windows;
+   - roda o `.exe` final em modo `--smoke-test` (aplicar/remover real num jogo falso);
+   - assina o `.exe`, se houver certificado;
    - gera `DLSS5-FrameGen.exe`, `DLSS5-FrameGen-vX.Y.Z-windows-x64.zip` (com README, LICENSE, CHANGELOG) e `SHA256SUMS.txt`;
    - cria o atestado de procedência do build (`gh attestation verify`);
    - publica a release com as notas no modelo `.github/release-template.md`.
+
+## Assinatura do `.exe`
+
+O workflow assina o `.exe` com `signtool` quando estes segredos existem em **Settings → Secrets and variables → Actions**:
+
+| Segredo | Conteúdo |
+|---|---|
+| `WINDOWS_PFX_BASE64` | O certificado `.pfx` em Base64 (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`) |
+| `WINDOWS_PFX_PASSWORD` | A senha do `.pfx` |
+
+Sem eles a release sai sem assinatura (e o SmartScreen avisa na primeira execução). Projetos open source podem conseguir certificado gratuito pela SignPath Foundation.
 
 ## O que toda release contém
 

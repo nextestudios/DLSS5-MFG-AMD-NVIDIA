@@ -17,6 +17,12 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
       - run: cargo build --release --locked
+      - name: Smoke test (o .exe real num Windows)
+        shell: pwsh
+        run: |
+          $p = Start-Process target/release/gpu-mods-app.exe -ArgumentList '--smoke-test', "$env:RUNNER_TEMP\smoke.txt" -Wait -PassThru
+          Get-Content "$env:RUNNER_TEMP\smoke.txt"
+          exit $p.ExitCode
       - uses: actions/upload-artifact@v7
         with:
           name: DLSS5-FrameGen

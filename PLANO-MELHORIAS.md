@@ -1,41 +1,38 @@
 # Plano de melhoria — DLSS 5 + Frame Generation
 
-## Diagnóstico (o que está fraco hoje)
+Todas as fases estão concluídas (versão 1.1.0).
 
-| # | Problema | Impacto | Onde |
-|---|---|---|---|
-| 1 | Downloads não são verificados (sem hash) | Arquivo corrompido ou adulterado vai direto para o jogo | `net.rs` |
-| 2 | A busca de jogos roda na abertura, travando a janela | App "congela" com HD lento ou drive de rede | `main.rs` → `games::scan` |
-| 3 | O app não lembra o que instalou em cada jogo | Não mostra versão nem escolha; não dá para atualizar | `install.rs` |
-| 4 | Não existe "atualizar tudo" | Mods novos saem toda semana; o usuário refaz jogo por jogo | — |
-| 5 | Layout em coluna única, alto (880 px) | Não cabe em telas de notebook; a lista de jogos fica espremida | `main.rs` |
-| 6 | O usuário não vê *o que* vai acontecer na imagem | "XeFG + plugin" não diz nada para quem joga | `main.rs` |
-| 7 | Log ocupa espaço o tempo todo | Polui a tela | `main.rs` |
-| 8 | Limite da API do GitHub (60/h sem login) | Muitas aplicações seguidas caem no cache | `net.rs` |
-| 9 | Nada é testado em Windows de verdade | Registro, Xbox e NeuralHub `/S` só verificados por código | — |
+## Diagnóstico inicial
 
-## Fase 1 — feita nesta rodada
+| # | Problema | Resolvido em |
+|---|---|---|
+| 1 | Downloads sem verificação de hash | Fase 1 |
+| 2 | Busca de jogos travava a janela | Fase 1 |
+| 3 | O app não lembrava o que instalou em cada jogo | Fase 1 |
+| 4 | Não existia "atualizar tudo" | Fase 1 |
+| 5 | Layout em coluna única, sem biblioteca | Fase 1 + biblioteca de capas |
+| 6 | O usuário não via o que acontece na imagem | Fase 1 |
+| 7 | Log ocupava a tela | Fase 1 |
+| 8 | Limite da API do GitHub (60/h) | Fase 2 |
+| 9 | Nada testado em Windows de verdade | Fase 3 |
 
-1. **Hash SHA-256 de cada download** contra o `digest` que o GitHub publica. Se não bater, o arquivo é apagado e a instalação para. (#1)
-2. **Busca de jogos em segundo plano**, com botão "Recarregar". (#2)
-3. **Estado por jogo** (`.gpu-mods-state.json`): placa, DLSS 5, multiplicador, versões instaladas e data. Selecionar um jogo já modado recarrega as escolhas dele. (#3)
-4. **"Atualizar todos"**: reaplica as escolhas salvas em todos os jogos modados com as versões mais novas. (#4)
-5. **Layout novo** (#5, #6, #7):
-   - Tema escuro com a cor da marca da placa (verde NVIDIA, vermelho AMD, azul Intel).
-   - Biblioteca à esquerda com busca, filtro por loja e selo "✔ modado".
-   - **Pipeline da imagem**: Jogo → Upscaler → DLSS 5 → Frame Gen → Tela, montado a partir do plano real.
-   - **Linha do tempo de quadros animada**: mostra 1 quadro real + N gerados e calcula o FPS final a partir de um FPS base que você ajusta.
-   - Log recolhível no rodapé.
+## Fase 1 — ✔ concluída
+- SHA-256 de todo download conferido contra o GitHub.
+- Busca de jogos em segundo plano.
+- Estado por jogo (`.gpu-mods-state.json`) e **Atualizar todos**.
+- Interface nova: biblioteca de capas por loja, tela do jogo, caminho da imagem, linha do tempo de quadros, progresso flutuante.
 
-## Fase 2 — próxima
+## Fase 2 — ✔ concluída
+- **Cache de 1 h** das informações de release (`%LOCALAPPDATA%\GpuMods\cache\meta`): aplicar em vários jogos seguidos não gasta o limite da API.
+- **Escolha do proxy** na tela do jogo (Automático/`dxgi.dll`, `version.dll`, `winmm.dll`, `winhttp.dll`), salva por jogo e mantida no "Atualizar todos". Só nomes da lista são aceitos.
+- **Perfis por jogo** em [`profiles.json`](profiles.json): proxy, anti-cheat e dicas. O app baixa a versão da `main` (cache de 1 dia) e usa a cópia embutida offline. Proxies fora da lista são descartados.
+- **Anti-cheat**: Easy Anti-Cheat, BattlEye e EA Javelin detectados pelos arquivos do jogo (e pelos perfis). O aplicar fica bloqueado até o usuário confirmar que vai jogar offline; o "⚡ Aplicar" rápido nunca passa direto.
 
-- Cache de metadados das releases por 1 h (reduz chamadas à API do GitHub). (#8)
-- Escolha do nome do proxy (`dxgi`/`version`/`winmm`) quando o jogo não carrega `dxgi.dll`.
-- Perfis por jogo conhecidos (ex.: jogos RE Engine precisam de `REPatch`), vindos de um JSON no repositório.
-- Aviso de anti-cheat automático (detectar `EasyAntiCheat`/`BattlEye` na pasta e bloquear).
+## Fase 3 — ✔ concluída
+- **Teste de fumaça no Windows**: `DLSS5-FrameGen.exe --smoke-test relatorio.txt` roda sem janela (placa, lojas, perfis, todos os planos e um aplicar/remover real). O CI e o workflow de release rodam o `.exe` final assim antes de publicar.
+- **Assinatura**: o workflow de release assina o `.exe` com `signtool` quando os segredos `WINDOWS_PFX_BASE64` e `WINDOWS_PFX_PASSWORD` existem (veja [RELEASING.md](RELEASING.md)). Sem certificado, a release sai sem assinatura, como antes.
+- **Atualização automática**: o app avisa quando há release nova e se atualiza com um clique (hash conferido, troca o próprio `.exe` e reabre).
 
-## Fase 3 — depois
-
-- CI no GitHub Actions gerando o `.exe` assinado a cada tag.
-- Teste de fumaça em VM Windows (abrir app, varrer lojas, aplicar num jogo falso).
-- Atualização automática do próprio app.
+## O que depende de fora do código
+- **Certificado de assinatura**: a etapa está pronta; falta cadastrar um certificado (comercial, ou gratuito para open source via SignPath Foundation) nos segredos do repositório.
+- **Teste com placas e jogos reais**: o CI não tem GPU; os relatos dos usuários (modelo de issue) alimentam os perfis.

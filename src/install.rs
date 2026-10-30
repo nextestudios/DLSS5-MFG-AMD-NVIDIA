@@ -19,6 +19,20 @@ pub struct State {
     pub versions: std::collections::BTreeMap<String, String>,
     /// Unix seconds.
     pub when: u64,
+    /// Proxy name chosen for this game (None = automatic).
+    #[serde(default)]
+    pub proxy: Option<String>,
+}
+
+/// Names the game can load our DLL as. OptiScaler and MFG Unlocker both accept all of them.
+/// Also the allow-list for proxies coming from (remote) game profiles.
+pub const PROXY_CHOICES: [&str; 4] = ["dxgi.dll", "version.dll", "winmm.dll", "winhttp.dll"];
+
+fn valid_proxy(p: Option<&str>) -> Result<Option<&str>, String> {
+    match p {
+        Some(p) if !PROXY_CHOICES.contains(&p) => Err(format!("nome de proxy não permitido: {p}")),
+        p => Ok(p),
+    }
 }
 
 pub fn read_state(game_dir: &Path) -> Option<State> {
@@ -227,9 +241,10 @@ fn original_filename(path: &Path) -> Option<String> {
 }
 
 /// Runs the whole plan on one game folder.
-pub fn apply(gpu: &Gpu, dlss5: bool, mult: u8, game_dir: &Path, log: Log) -> Result<(), String> {
+pub fn apply(gpu: &Gpu, dlss5: bool, mult: u8, proxy: Option<&str>, game_dir: &Path, log: Log) -> Result<(), String> {
     let plan = plan::build(gpu.tier, dlss5, mult);
-    let mut state = State { gpu: gpu.tier.label().into(), dlss5, mult, ..State::default() };
+    let chosen = valid_proxy(proxy)?;
+    let mut state = State { gpu: gpu.tier.label().into(), dlss5, mult, proxy: chosen.map(str::to_string), ..State::default() };
 
     if plan.neuralhub {
         return neuralhub(&plan.notes, log);
@@ -264,7 +279,7 @@ pub fn apply(gpu: &Gpu, dlss5: bool, mult: u8, game_dir: &Path, log: Log) -> Res
         // Keep the proxy name of a previous OptiScaler install, else dxgi.dll.
         let old: Vec<&str> = PROXIES.iter().copied()
             .filter(|p| original_filename(&game.dir.join(p)).is_some()).collect();
-        let proxy = old.first().copied().unwrap_or("dxgi.dll");
+        let proxy = chosen.or(old.first().copied()).unwrap_or("dxgi.dll");
         for o in old.iter().filter(|o| **o != proxy) {
             let _ = fs::remove_file(game.dir.join(o));
             log(format!("Removido OptiScaler antigo: {o}"));
@@ -334,7 +349,7 @@ pub fn apply(gpu: &Gpu, dlss5: bool, mult: u8, game_dir: &Path, log: Log) -> Res
         let rel = net::latest_release("dashdogy/MFG-Unlocker", |n| n.starts_with("MFGUnlocker") && n.ends_with(".zip"), log)?;
         let dll = net::find_file(&net::extract(&rel.file)?, "MFGUnlocker.dll").ok_or("MFGUnlocker.dll não está no pacote")?;
         // Inside OptiScaler it must be a plugin; on its own it is the dxgi.dll proxy.
-        let name = if plan.opti.is_some() { "OptiScaler/plugins/MFGUnlocker.asi" } else { "dxgi.dll" };
+        let name = if plan.opti.is_some() { "OptiScaler/plugins/MFGUnlocker.asi" } else { chosen.unwrap_or("dxgi.dll") };
         game.place(&dll, name, log)?;
         log(format!("MFG Unlocker {} instalado como {name}", rel.tag));
         state.versions.insert("MFG Unlocker".into(), rel.tag.clone());
@@ -434,7 +449,7 @@ pub fn update_all(gpu: &Gpu, dirs: &[PathBuf], log: Log) -> Result<(), String> {
     for dir in dirs {
         let Some(st) = read_state(dir) else { continue };
         log(format!("━━ {}", dir.display()));
-        if let Err(e) = apply(gpu, st.dlss5, st.mult, dir, log) {
+        if let Err(e) = apply(gpu, st.dlss5, st.mult, st.proxy.as_deref(), dir, log) {
             log(format!("ERRO: {e}"));
             failed.push(dir.display().to_string());
         }
@@ -618,7 +633,7 @@ mod tests {
             fs::write(game.join("Game.exe"), "x").unwrap();
             fs::write(game.join("dxgi.dll"), "original").unwrap();
             let gpu = Gpu { name: "test".into(), tier };
-            apply(&gpu, dlss5, mult, &game, &log).unwrap();
+            apply(&gpu, dlss5, mult, None, &game, &log).unwrap();
             let st = read_state(&game).unwrap();
             assert_eq!((st.mult, st.dlss5), (mult, dlss5));
             assert!(fs::metadata(game.join("dxgi.dll")).unwrap().len() > 1_000_000, "{tier:?}: proxy installed");
@@ -634,13 +649,46 @@ mod tests {
                 _ => assert!(ini.contains("Dx12Upscaler=xess") && ini.contains("InterpolationCount=3")),
             }
             // Reapplying must not stack backups or lose the original.
-            apply(&gpu, dlss5, mult, &game, &log).unwrap();
+            apply(&gpu, dlss5, mult, None, &game, &log).unwrap();
             uninstall(&game, &log).unwrap();
             let left: Vec<String> = fs::read_dir(&game).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
             assert_eq!(fs::read_to_string(game.join("dxgi.dll")).unwrap(), "original");
             let mut left = left;
             left.sort();
             assert_eq!(left, ["Game.exe", "dxgi.dll"], "{tier:?}: everything removed");
+        }
+    }
+
+    #[test]
+    fn proxy_names_outside_the_allow_list_are_refused() {
+        let game = tmp("badproxy");
+        let gpu = Gpu { name: "x".into(), tier: Tier::Rtx40 };
+        for bad in ["../../evil.dll", "kernel32.dll", "dxgi.dll\\..\\x.dll"] {
+            let err = apply(&gpu, false, 3, Some(bad), &game, &|_| {}).unwrap_err();
+            assert!(err.contains("não permitido"), "{bad}: {err}");
+        }
+        assert!(fs::read_dir(&game).unwrap().next().is_none(), "nothing was written");
+        assert_eq!(valid_proxy(Some("version.dll")), Ok(Some("version.dll")));
+        assert_eq!(valid_proxy(None), Ok(None));
+    }
+
+    /// Chosen proxy name, end to end (`cargo test -- --ignored`).
+    #[test]
+    #[ignore]
+    fn real_apply_with_chosen_proxy() {
+        let log = |s: String| println!("{s}");
+        for tier in [Tier::Rtx40, Tier::Intel] {
+            let game = tmp(&format!("e2e-proxy-{tier:?}"));
+            fs::write(game.join("Game.exe"), "x").unwrap();
+            let gpu = Gpu { name: "test".into(), tier };
+            apply(&gpu, false, 4, Some("version.dll"), &game, &log).unwrap();
+            assert!(fs::metadata(game.join("version.dll")).unwrap().len() > 1_000_000, "{tier:?}");
+            assert!(!game.join("dxgi.dll").exists(), "{tier:?}");
+            assert_eq!(read_state(&game).unwrap().proxy.as_deref(), Some("version.dll"));
+            update_all(&gpu, std::slice::from_ref(&game), &log).unwrap();
+            assert!(game.join("version.dll").exists(), "update keeps the chosen proxy");
+            uninstall(&game, &log).unwrap();
+            assert!(!game.join("version.dll").exists());
         }
     }
 }
