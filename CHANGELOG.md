@@ -25,6 +25,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Script `scripts/release.sh`, `RELEASING.md`, `CONTRIBUTING.md`, `SECURITY.md` e modelo de pull request.
 
 ### Corrigido
+- Placas virtuais (Microsoft Basic Render Driver em VMs) eram classificadas como Intel Arc; agora o app pede para escolher o modelo. Achado pelo teste de fumaça no Windows.
 - Seletor de placa sem nome para leitores de tela.
 - Placas profissionais NVIDIA (RTX 2000/4000/6000 Ada e RTX PRO Blackwell) eram classificadas como GTX ou RTX 20/30.
 

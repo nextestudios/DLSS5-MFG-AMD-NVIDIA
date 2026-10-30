@@ -54,7 +54,8 @@ fn model_after(name: &str, token: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
-pub fn classify(name: &str, vendor_id: u32) -> Gpu {
+/// None for adapters that are not NVIDIA, AMD or Intel (e.g. Microsoft Basic Render Driver in VMs).
+pub fn classify(name: &str, vendor_id: u32) -> Option<Gpu> {
     let up = name.to_uppercase();
     let tier = match vendor_id {
         // Workstation cards name the architecture: "RTX 2000 Ada", "RTX PRO 6000 Blackwell".
@@ -73,9 +74,10 @@ pub fn classify(name: &str, vendor_id: u32) -> Gpu {
             Some(n) if (6000..7000).contains(&n) => Tier::Rdna2,
             _ => Tier::AmdOld,
         },
-        _ => Tier::Intel,
+        0x8086 => Tier::Intel,
+        _ => return None,
     };
-    Gpu { name: name.trim().to_string(), tier }
+    Some(Gpu { name: name.trim().to_string(), tier })
 }
 
 /// Picks the adapter with the most dedicated VRAM (the discrete card on laptops with an iGPU).
@@ -92,7 +94,7 @@ pub fn detect() -> Option<Gpu> {
             continue;
         }
         let len = d.Description.iter().position(|&c| c == 0).unwrap_or(d.Description.len());
-        let gpu = classify(&String::from_utf16_lossy(&d.Description[..len]), d.VendorId);
+        let Some(gpu) = classify(&String::from_utf16_lossy(&d.Description[..len]), d.VendorId) else { continue };
         if best.as_ref().is_none_or(|(vram, _)| d.DedicatedVideoMemory > *vram) {
             best = Some((d.DedicatedVideoMemory, gpu));
         }
@@ -126,7 +128,7 @@ mod tests {
             ("Intel(R) Arc(TM) A770 Graphics", 0x8086, Tier::Intel),
         ];
         for (name, vendor, tier) in cases {
-            assert_eq!(classify(name, vendor).tier, tier, "{name}");
+            assert_eq!(classify(name, vendor).map(|g| g.tier), Some(tier), "{name}");
         }
     }
 
@@ -149,9 +151,12 @@ mod tests {
             ("  NVIDIA GeForce RTX 4070  ", 0x10DE, Tier::Rtx40),
         ];
         for (name, vendor, tier) in cases {
-            assert_eq!(classify(name, vendor).tier, tier, "{name}");
+            assert_eq!(classify(name, vendor).map(|g| g.tier), Some(tier), "{name}");
         }
-        assert_eq!(classify("  NVIDIA GeForce RTX 4070  ", 0x10DE).name, "NVIDIA GeForce RTX 4070");
+        assert_eq!(classify("  NVIDIA GeForce RTX 4070  ", 0x10DE).unwrap().name, "NVIDIA GeForce RTX 4070");
+        // Found by the Windows smoke test: VM adapters used to be classified as Intel Arc.
+        assert!(classify("Microsoft Basic Render Driver", 0x1414).is_none());
+        assert!(classify("VMware SVGA 3D", 0x15AD).is_none());
     }
 
     #[test]
