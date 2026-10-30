@@ -252,6 +252,11 @@ pub fn apply(gpu: &Gpu, dlss5: bool, mult: u8, proxy: Option<&str>, game_dir: &P
     let mut state = State { gpu: gpu.tier.label().into(), dlss5, mult, proxy: chosen.map(str::to_string), ..State::default() };
 
     if plan.neuralhub {
+        // NeuralHub's loader must see the game's own DLSS/FSR calls: OptiScaler (ours) in front of it hides them.
+        if !game_dir.as_os_str().is_empty() && !Game::open(game_dir).ours.is_empty() {
+            log("Removendo OptiScaler/MFG deste jogo: o NeuralHub não funciona com eles juntos".into());
+            Game::open(game_dir).uninstall(log)?;
+        }
         return neuralhub(&plan.notes, log);
     }
 

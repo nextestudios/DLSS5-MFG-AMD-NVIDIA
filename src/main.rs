@@ -317,7 +317,8 @@ impl App {
         let plan = plan::build(self.gpu.tier, self.dlss5, self.mult);
         let (gpu, dlss5, mult) = (self.gpu.clone(), self.dlss5, self.mult);
         if plan.neuralhub {
-            self.run(ctx, "DLSS 5 na AMD (NeuralHub)".into(), move |log| install::apply(&gpu, dlss5, mult, None, Path::new(""), log));
+            let dir = self.entry(key).and_then(|e| e.dir.clone()).unwrap_or_default();
+            self.run(ctx, "DLSS 5 na AMD (NeuralHub)".into(), move |log| install::apply(&gpu, dlss5, mult, None, &dir, log));
             return;
         }
         let Some(e) = self.entry(key) else { return };

@@ -11,6 +11,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Cartão **Mods neste jogo**: status em verde, uma linha por escolha (DLSS 5, Frame Generation, Carregar como) com o seletor ao lado, e o botão de aplicar embaixo.
 - Títulos dos cartões maiores e em texto normal.
 
+### Corrigido
+- **DLSS 5 na AMD não abria no jogo (End sem efeito)** quando o jogo já tinha OptiScaler/Frame Generation instalados pelo app: o OptiScaler ficava na frente do carregador do NeuralHub. Agora, ao instalar o DLSS 5 na AMD, o app remove antes os mods dele daquele jogo. Dicas de requisitos e do log do NeuralHub na tela do jogo.
+
 ### Adicionado
 - **▶ Jogar**: abre o jogo pela Steam (`steam://rungameid`) ou pelo `.exe` principal da pasta.
 
