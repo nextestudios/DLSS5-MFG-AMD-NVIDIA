@@ -6,13 +6,20 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 ## [Unreleased]
 
 ### Adicionado
-- 36 testes automáticos (antes 15): todas as combinações de placa × DLSS 5 × multiplicador, download parcial de zip contra um servidor HTTP local, backup/remoção, lojas e interface.
+- **Biblioteca de jogos com capas**, no estilo do NeuralHub: barra lateral com as lojas (Todos, Modados, Steam, Epic, Xbox…, Adicionados) e grade de capas reais da Steam. Jogos de outras lojas ganham a capa quando existem na Steam com o mesmo nome; os demais ganham uma capa gerada.
+- **Aplicar com um clique:** passe o mouse na capa e clique em ⚡ Aplicar (usa o preset do topo). Clique direito para abrir, remover mods ou abrir a pasta.
+- **Tela do jogo:** fundo e logo do jogo, recursos, caminho da imagem, linha do tempo de quadros e o botão grande de aplicar.
+- **Adicionar jogo por pasta ou arrastando** a pasta/o `.exe` para a janela; o jogo fica salvo na biblioteca.
+- Progresso da instalação num cartão flutuante, com o log completo opcional.
+- Teste que renderiza a interface sem tela e gera os prints do README.
+- 42 testes automáticos (antes 15): todas as combinações de placa × DLSS 5 × multiplicador, download parcial de zip contra um servidor HTTP local, backup/remoção, lojas e interface.
 - Teste de ponta a ponta com os pacotes reais (instala, reinstala e remove de um jogo falso) e workflow semanal que avisa quando um mod muda o formato das releases.
 - Versão do app no topo da janela.
 - Padrão de releases: validação de versão e CHANGELOG, zip com documentação, `SHA256SUMS.txt`, atestado de procedência do build e notas com modelo fixo.
 - Script `scripts/release.sh`, `RELEASING.md`, `CONTRIBUTING.md`, `SECURITY.md` e modelo de pull request.
 
 ### Corrigido
+- Seletor de placa sem nome para leitores de tela.
 - Placas profissionais NVIDIA (RTX 2000/4000/6000 Ada e RTX PRO Blackwell) eram classificadas como GTX ou RTX 20/30.
 
 ### Alterado
