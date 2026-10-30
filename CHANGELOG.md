@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
 ### Alterado
 - **Tela do jogo nova**, no estilo de página de loja: capa, título, desenvolvedora, data e loja no topo, com **▶ Jogar** e menu **⋯** (abrir pasta, remover mods, tirar da biblioteca).
 - Cartão **Sobre** com a descrição, desenvolvedora, publicadora, lançamento e gêneros, em português, vindos da API oficial da loja Steam (`appdetails`), mais a loja e a pasta do jogo.
@@ -92,7 +94,8 @@ Primeira versão pública.
 ### Segurança
 - SHA-256 de todo download conferido contra o GitHub.
 
-[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.1.0...v1.2.0
