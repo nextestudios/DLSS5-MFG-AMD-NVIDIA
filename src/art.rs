@@ -56,10 +56,28 @@ fn search_appid(name: &str) -> Option<u32> {
     id
 }
 
+/// Library art file names from Steam's official store API. Newer games only have hashed paths
+/// ("<hash>/library_capsule.jpg"), so the names have to come from here. Cached per app.
+fn assets(appid: u32) -> serde_json::Value {
+    let cached = dir().join(format!("{appid}.assets.json"));
+    if let Some(v) = fs::read_to_string(&cached).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+        return v;
+    }
+    let q = encode(&format!(r#"{{"ids":[{{"appid":{appid}}}],"context":{{"language":"english","country_code":"US"}},"data_request":{{"include_assets":true}}}}"#));
+    let Ok(j) = net::get_json(&format!("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={q}")) else {
+        return serde_json::Value::Null;
+    };
+    let a = j["response"]["store_items"][0]["assets"].clone();
+    if a.is_object() {
+        let _ = fs::write(&cached, a.to_string());
+    }
+    a
+}
+
 /// One CDN file, downloaded once. A miss is remembered so it is not asked again.
 fn steam_file(appid: u32, file: &str) -> Option<PathBuf> {
-    let path = dir().join(format!("{appid}_{file}"));
-    let miss = dir().join(format!("{appid}_{file}.none"));
+    let path = dir().join(format!("{appid}_{}", file.replace('/', "_")));
+    let miss = path.with_extension("none");
     if path.exists() {
         return Some(path);
     }
@@ -78,9 +96,12 @@ fn steam_file(appid: u32, file: &str) -> Option<PathBuf> {
 
 pub fn fetch(game: &Found) -> Art {
     let Some(appid) = game.steam_appid.or_else(|| search_appid(&game.name)) else { return Art::default() };
+    let a = assets(appid);
+    let named = |key: &str, old: &str| steam_file(appid, a[key].as_str().unwrap_or(old)).or_else(|| steam_file(appid, old));
     Art {
-        poster: steam_file(appid, "library_600x900.jpg"),
-        hero: steam_file(appid, "library_hero.jpg"),
+        poster: named("library_capsule_2x", "library_600x900.jpg"),
+        hero: named("library_hero", "library_hero.jpg"),
+        // The API has no logo entry; this path still works for most games.
         logo: steam_file(appid, "logo.png"),
     }
 }

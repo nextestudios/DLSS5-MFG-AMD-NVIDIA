@@ -31,7 +31,7 @@ Baixe o **`DLSS5-FrameGen.exe`** na [última release](https://github.com/nextest
 5. Se a pasta for protegida, o app pede permissão de Administrador.
 6. No jogo, ative DLSS/FSR/XeSS e o Frame Generation no menu de vídeo.
 
-O app se atualiza sozinho: quando sai uma versão nova, aparece **Atualizar o app** na barra lateral.
+O app se atualiza sozinho: quando sai uma versão nova, ele baixa, confere o SHA-256 e reabre. Para atualizar só quando quiser, desmarque **Atualizar o app sozinho** na barra lateral.
 
 **Remover do jogo** apaga só o que o app colocou e devolve os arquivos originais. **Atualizar todos** reinstala, em todos os jogos modados, as mesmas escolhas com as versões mais novas.
 
@@ -92,7 +92,7 @@ cargo xwin build --release --target x86_64-pc-windows-msvc   # do macOS/Linux
 
 ## Testes e qualidade
 
-- `cargo test`: 50 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
+- `cargo test`: 52 testes rápidos, sem internet. Cobrem todas as combinações de placa × DLSS 5 × multiplicador, o download parcial de zip (contra um servidor HTTP local), backup e remoção, leitura das lojas e a interface.
 - `cargo test -- --ignored`: baixa os pacotes reais, aplica num jogo falso (RTX 40, RX 7000, GTX, Intel), reinstala e remove, conferindo que nada sobra.
 - `DLSS5-FrameGen.exe --smoke-test relatorio.txt`: teste de fumaça do `.exe` final, sem janela (placa, lojas, perfis, planos e um aplicar/remover real).
 - CI no Windows a cada push e PR (clippy `-D warnings`, testes e o teste de fumaça do `.exe`); toda semana o workflow **Fontes externas** roda os testes com os pacotes reais e avisa se algum mod mudou.
@@ -110,7 +110,7 @@ Versões seguem SemVer e o [CHANGELOG](CHANGELOG.md). `scripts/release.sh X.Y.Z`
 | `src/plan.rs` | Decide o que instalar para cada placa e escolha (lógica pura, testada) |
 | `src/net.rs` | Releases do GitHub, cache, SHA-256 e extração parcial de zip por HTTP |
 | `src/install.rs` | Instala, faz backup, edita INIs, remove e atualiza |
-| `src/art.rs` | Capas, fundo e logo dos jogos (CDN da Steam) |
+| `src/art.rs` | Capas, fundo e logo dos jogos (API oficial da loja Steam) |
 | `src/profiles.rs` | Perfis por jogo e detecção de anti-cheat |
 | `src/update.rs` | Atualização automática do app |
 | `src/smoke.rs` | Teste de fumaça do `.exe` |

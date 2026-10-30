@@ -54,10 +54,18 @@ pub fn download(url: &str, dest: &Path, referer: Option<&str>, log: Log) -> Resu
     if let Some(r) = referer {
         req = req.header("Referer", r);
     }
-    let res = req.call().map_err(|e| format!("Falha no download de {url}: {e}"))?;
     let part = dest.with_extension("part");
-    let mut file = fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
-    let copied = io::copy(&mut res.into_body().into_reader(), &mut file);
+    let mut file = io::BufWriter::with_capacity(1 << 20, fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?);
+    // Big files on servers with ranges (GitHub): PARTS connections at once; one CDN connection is far below a fast line.
+    let ranged = if referer.is_none() { range_len(url).ok().filter(|&l| l > PIECE) } else { None };
+    let copied = match ranged {
+        Some(len) => (0..len).step_by(CHUNK as usize).try_for_each(|at| {
+            io::Write::write_all(&mut file, &get_ranges(url, at, (at + CHUNK).min(len))?)?;
+            log(format!("Baixado {} de {} MB", (at + CHUNK).min(len) >> 20, len >> 20));
+            Ok(())
+        }).map(|_| len),
+        None => req.call().map_err(io::Error::other).and_then(|res| io::copy(&mut res.into_body().into_reader(), &mut file)),
+    }.and_then(|n| io::Write::flush(&mut file).map(|_| n));
     drop(file);
     if let Err(e) = copied {
         let _ = fs::remove_file(&part);
@@ -227,7 +235,7 @@ fn unzip_some(r: impl io::Read + io::Seek, wanted: &[&str], dest: &Path, log: Lo
     Ok(())
 }
 
-/// A remote file read through HTTP range requests, 8 MB at a time.
+/// A remote file read through HTTP range requests, CHUNK bytes at a time.
 struct Remote {
     url: String,
     len: u64,
@@ -237,16 +245,49 @@ struct Remote {
 }
 
 impl Remote {
-    const CHUNK: u64 = 8 << 20;
-
     fn open(url: &str) -> Result<Remote, String> {
-        let res = agent().get(url).header("User-Agent", UA).header("Range", "bytes=0-0").call().map_err(|e| e.to_string())?;
-        // "bytes 0-0/629518374"
-        let len = res.headers().get("content-range").and_then(|v| v.to_str().ok())
-            .and_then(|v| v.rsplit('/').next()).and_then(|v| v.parse().ok())
-            .ok_or("o servidor não aceita download parcial")?;
-        Ok(Remote { url: url.to_string(), len, pos: 0, start: 0, buf: Vec::new() })
+        Ok(Remote { url: url.to_string(), len: range_len(url)?, pos: 0, start: 0, buf: Vec::new() })
     }
+}
+
+/// Parallel range requests: CHUNK bytes are fetched as PARTS pieces of PIECE bytes at once.
+const PIECE: u64 = 8 << 20;
+const PARTS: u64 = 8;
+const CHUNK: u64 = PIECE * PARTS;
+
+/// Size of a file on a server that accepts range requests.
+fn range_len(url: &str) -> Result<u64, String> {
+    let res = agent().get(url).header("User-Agent", UA).header("Range", "bytes=0-0").call().map_err(|e| e.to_string())?;
+    // "bytes 0-0/629518374"
+    res.headers().get("content-range").and_then(|v| v.to_str().ok())
+        .and_then(|v| v.rsplit('/').next()).and_then(|v| v.parse().ok())
+        .ok_or_else(|| "o servidor não aceita download parcial".to_string())
+}
+
+/// Bytes `start..end` of `url`, PIECE bytes per connection, all in parallel. Each piece gets one retry.
+fn get_ranges(url: &str, start: u64, end: u64) -> io::Result<Vec<u8>> {
+    let one = |a: u64, b: u64| -> io::Result<Vec<u8>> {
+        let res = agent().get(url).header("User-Agent", UA).header("Range", format!("bytes={a}-{b}")).call().map_err(io::Error::other)?;
+        if res.status() != 206 {
+            return Err(io::Error::other("o servidor ignorou o download parcial"));
+        }
+        let mut buf = Vec::with_capacity((b - a + 1) as usize);
+        io::Read::read_to_end(&mut res.into_body().into_reader(), &mut buf)?;
+        if buf.len() as u64 != b - a + 1 {
+            return Err(io::Error::other("download parcial incompleto"));
+        }
+        Ok(buf)
+    };
+    std::thread::scope(|s| {
+        let pieces: Vec<_> = (start..end).step_by(PIECE as usize)
+            .map(|a| { let b = (a + PIECE).min(end) - 1; s.spawn(move || one(a, b).or_else(|_| one(a, b))) })
+            .collect();
+        let mut out = Vec::with_capacity((end - start) as usize);
+        for p in pieces {
+            out.extend(p.join().map_err(|_| io::Error::other("falha no download"))??);
+        }
+        Ok(out)
+    })
 }
 
 impl io::Read for Remote {
@@ -255,14 +296,7 @@ impl io::Read for Remote {
             return Ok(0);
         }
         if self.pos < self.start || self.pos >= self.start + self.buf.len() as u64 {
-            let end = (self.pos + Self::CHUNK).min(self.len) - 1;
-            let res = agent().get(&self.url).header("User-Agent", UA).header("Range", format!("bytes={}-{end}", self.pos))
-                .call().map_err(io::Error::other)?;
-            if res.status() != 206 {
-                return Err(io::Error::other("o servidor ignorou o download parcial"));
-            }
-            self.buf.clear();
-            res.into_body().into_reader().read_to_end(&mut self.buf)?;
+            self.buf = get_ranges(&self.url, self.pos, (self.pos + CHUNK).min(self.len))?;
             self.start = self.pos;
         }
         let off = (self.pos - self.start) as usize;
@@ -413,13 +447,13 @@ mod tests {
 
     #[test]
     fn remote_reads_and_seeks_across_chunks() {
-        // Bigger than one 8 MB chunk, so reads cross a chunk boundary.
-        let data = pattern(20 << 20, 0);
+        // Bigger than one CHUNK, so reads cross a chunk boundary.
+        let data = pattern((CHUNK + (4 << 20)) as usize, 0);
         let mut r = Remote::open(&serve(data.clone(), true)).unwrap();
         assert_eq!(r.len, data.len() as u64);
 
         let mut buf = vec![0u8; 64];
-        let at = (8 << 20) - 32;
+        let at = CHUNK as usize - 32;
         r.seek(SeekFrom::Start(at as u64)).unwrap();
         r.read_exact(&mut buf).unwrap();
         assert_eq!(buf, data[at..at + 64]);
@@ -447,6 +481,19 @@ mod tests {
         unzip_some(r, &["OptiScaler/streamline/nvngx_dlssnr.dll", "small.ini"], &dest, &|_| {}).unwrap();
         assert_eq!(fs::read(dest.join("nvngx_dlssnr.dll")).unwrap(), big);
         assert_eq!(fs::read(dest.join("small.ini")).unwrap(), b"x=1");
+    }
+
+    #[test]
+    fn download_in_parallel_pieces_or_one_stream() {
+        let data = pattern((CHUNK + PIECE + 5) as usize, 3);
+        let dir = std::env::temp_dir().join(format!("gpumods-dl-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for ranges in [true, false] {
+            let dest = dir.join(format!("f-{ranges}.bin"));
+            let _ = fs::remove_file(&dest);
+            download(&serve(data.clone(), ranges), &dest, None, &|_| {}).unwrap();
+            assert!(fs::read(&dest).unwrap() == data, "ranges={ranges}");
+        }
     }
 
     #[test]

@@ -120,7 +120,7 @@ fn xbox(drive: &Path) -> Vec<Found> {
 }
 
 #[cfg(windows)]
-mod reg {
+pub mod reg {
     use windows::Win32::System::Registry::*;
     use windows::core::{HSTRING, PWSTR};
 

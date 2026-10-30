@@ -117,6 +117,9 @@ struct App {
     update: Option<String>,
     /// Restart into the new exe when the running task (the app update) succeeds.
     relaunch: bool,
+    auto_update: bool,
+    /// Release the automatic update already tried, so a failed one is not retried every frame.
+    auto_tried: Option<String>,
     base_fps: u32,
     task: Option<Task>,
     fade: Option<TextureHandle>,
@@ -170,8 +173,10 @@ fn name_hue(name: &str) -> f32 {
     (h % 360) as f32 / 360.0
 }
 
+/// `file:///C:/x.jpg` on Windows: egui reads `file://C:\x.jpg` as the network path `\\C:\x.jpg`.
 fn file_uri(p: &Path) -> String {
-    format!("file://{}", p.display())
+    let s = p.display().to_string().replace('\\', "/");
+    if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
 }
 
 fn scan_library(tx: Sender<Msg>, ctx: egui::Context) {
@@ -204,11 +209,15 @@ impl App {
         style(ctx, accent(gpu.tier));
         scan_library(tx.clone(), ctx.clone());
         let (utx, uctx) = (tx.clone(), ctx.clone());
-        std::thread::spawn(move || {
+        // Checks at start and every 6 h, so an app left open still gets new releases.
+        std::thread::spawn(move || loop {
             if let Some(tag) = update::check() {
-                let _ = utx.send(Msg::Update(tag));
+                if utx.send(Msg::Update(tag)).is_err() {
+                    break;
+                }
                 uctx.request_repaint();
             }
+            std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
         });
         App {
             dlss5: gpu.tier.is_rtx(),
@@ -226,6 +235,8 @@ impl App {
             anticheat_ok: Default::default(),
             update: None,
             relaunch: false,
+            auto_update: update::auto_enabled(),
+            auto_tried: None,
             base_fps: 60,
             task: None,
             fade: None,
@@ -436,7 +447,7 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = GAP;
             for item in row {
-                let (rect, resp) = ui.allocate_exact_size(vec2(card_w, card_h + 24.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(vec2(card_w, card_h), Sense::click());
                 let t = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.14);
                 let card = Rect::from_min_size(rect.min - vec2(0.0, 6.0 * t), vec2(card_w, card_h));
                 let p = ui.painter();
@@ -461,12 +472,12 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                 fade(p, tex, bottom, CornerRadius { nw: 0, ne: 0, sw: 14, se: 14 }, Color32::from_black_alpha(230));
                 let edge = if t > 0.0 { acc.gamma_multiply(0.4 + 0.6 * t) } else { Color32::from_white_alpha(18) };
                 p.rect_stroke(card, 14, Stroke::new(1.0 + t, edge), StrokeKind::Inside);
-                chip(p, card.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, store_label(e.found.store), Color32::BLACK, store_color(e.found.store));
                 if e.anticheat.is_some() {
-                    chip(p, card.left_top() + vec2(8.0, 32.0), Align2::LEFT_TOP, "⚠ anti-cheat", Color32::WHITE, Color32::from_rgb(200, 40, 50));
+                    chip(p, card.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, "⚠ anti-cheat", Color32::WHITE, Color32::from_rgb(200, 40, 50));
                 }
                 if let Some(st) = &e.state {
-                    let label = if st.mult > 0 { format!("✔ {}x", st.mult) } else { "✔ MOD".into() };
+                    let d5 = if st.dlss5 { " DLSS 5" } else { "" };
+                    let label = if st.mult > 0 { format!("✔{d5} {}x", st.mult) } else { format!("✔{}", if d5.is_empty() { " MOD" } else { d5 }) };
                     chip(p, card.right_top() + vec2(-8.0, 8.0), Align2::RIGHT_TOP, &label, Color32::BLACK, acc);
                 }
                 // Quick apply: appears on hover, applies the current preset.
@@ -480,14 +491,11 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                     let g = p.layout(e.found.name.clone(), FontId::proportional(13.0), Color32::WHITE, card_w - 24.0);
                     p.galley(pos2(card.left() + 12.0, card.bottom() - 12.0 - g.size().y), g, Color32::WHITE);
                 }
-                if let Some(s) = &e.state {
-                    let d5 = if s.dlss5 { "DLSS 5 · " } else { "" };
-                    let fg = if s.mult > 0 { format!("{}x · ", s.mult) } else { String::new() };
-                    p.text(pos2(rect.left() + 2.0, rect.bottom() - 10.0), Align2::LEFT_CENTER, format!("{d5}{fg}modado {}", ago(s.when)), FontId::proportional(11.0), acc);
-                }
-
                 let key = e.found.dir.clone();
-                let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                let resp = match &e.state {
+                    Some(s) => resp.on_hover_text(format!("Modado {}", ago(s.when))),
+                    None => resp,
+                }.on_hover_cursor(egui::CursorIcon::PointingHand);
                 if resp.clicked() {
                     let on_quick = resp.interact_pointer_pos().is_some_and(|h| quick.contains(h));
                     acts.push(if on_quick { Act::Quick(key.clone()) } else { Act::Open(key.clone()) });
@@ -511,7 +519,7 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                 });
             }
         });
-        ui.add_space(GAP - 8.0);
+        ui.add_space(GAP - ui.spacing().item_spacing.y);
     }
 }
 
@@ -522,7 +530,7 @@ fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32, big: bool) {
     let ok5 = plan::dlss5_supported(app.gpu.tier);
     ui.add_enabled_ui(ok5, |ui| {
         let on = app.dlss5 && ok5;
-        let t = RichText::new(if on { "DLSS 5  ●" } else { "DLSS 5  ○" }).size(size).strong();
+        let t = RichText::new(if on { "✔  DLSS 5" } else { "DLSS 5" }).size(size).strong();
         let w = if big { ui.available_width() } else { 96.0 };
         let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(w, h));
         let hint = if app.gpu.tier.is_nvidia() { "DLSS 5 Neural Rendering via DLSS Unlocked" } else { "DLSS 5 via NeuralHub (DLSS-NR on AMD)" };
@@ -742,7 +750,7 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                     }
                 });
                 match &dir {
-                    Some(d) => ui.label(RichText::new(d.display().to_string()).size(11.0).color(MUTED)),
+                    Some(d) => ui.add(egui::Label::new(RichText::new(d.display().to_string()).size(11.0).color(MUTED)).truncate()).on_hover_text(d.display().to_string()),
                     None => ui.colored_label(Color32::LIGHT_RED, "Não achei o .exe do jogo nesta pasta"),
                 };
                 if let Some(st) = &state {
@@ -813,7 +821,7 @@ fn library_page(ui: &mut egui::Ui, app: &mut App, acc: Color32, acts: &mut Vec<A
         ui.add_space(8.0);
         egui::Frame::new().fill(CARD).corner_radius(14).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong());
+                ui.add_sized(vec2(0.0, 30.0), egui::Label::new(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong()).extend());
                 ui.add_space(6.0);
                 feature_controls(ui, app, acc, false);
                 let [_, _, fg] = plan::build(app.gpu.tier, app.dlss5, app.mult).pipeline(app.gpu.tier, app.mult);
@@ -876,6 +884,11 @@ fn rail(ui: &mut egui::Ui, app: &mut App, acc: Color32, ctx: &egui::Context) {
             }
         });
     }
+    ui.add_space(8.0);
+    if ui.checkbox(&mut app.auto_update, RichText::new("Atualizar o app sozinho").size(12.0).color(MUTED))
+        .on_hover_text("Instala as releases novas assim que saem (SHA-256 conferido) e reabre o app").changed() {
+        update::set_auto(app.auto_update);
+    }
     ui.add_space(14.0);
     ui.label(RichText::new("BIBLIOTECA").size(10.0).color(MUTED).strong());
     let mut stores: Vec<&'static str> = app.library.iter().map(|e| e.found.store).collect();
@@ -917,7 +930,7 @@ fn rail(ui: &mut egui::Ui, app: &mut App, acc: Color32, ctx: &egui::Context) {
                 ui.spinner();
                 ui.label(RichText::new("Procurando jogos…").size(11.0).color(MUTED));
             });
-        } else if ui.add(egui::Button::new(RichText::new("Procurar jogos de novo").size(11.0)).frame(false)).clicked() {
+        } else if ui.add(egui::Button::new(RichText::new("🔍  Procurar jogos de novo").size(12.0)).min_size(vec2(ui.available_width(), 30.0))).clicked() {
             app.scanning = true;
             scan_library(app.tx.clone(), ctx.clone());
         }
@@ -1022,6 +1035,11 @@ impl App {
                 }
             }
         }
+        if self.auto_update && !self.busy() && let Some(tag) = self.update.clone().filter(|t| self.auto_tried.as_ref() != Some(t)) {
+            self.auto_tried = Some(tag.clone());
+            self.relaunch = true;
+            self.run(&ctx, format!("Atualizando o app para {tag}"), |log| update::install(log).map(|_| ()));
+        }
         let acc = accent(self.gpu.tier);
         let mut acts = Vec::new();
 
@@ -1102,6 +1120,12 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_uris_load_on_windows_and_unix() {
+        assert_eq!(file_uri(Path::new(r"C:\Users\a b\x.jpg")), "file:///C:/Users/a b/x.jpg");
+        assert_eq!(file_uri(Path::new("/home/a/x.jpg")), "file:///home/a/x.jpg");
+    }
 
     #[test]
     fn ago_in_days() {

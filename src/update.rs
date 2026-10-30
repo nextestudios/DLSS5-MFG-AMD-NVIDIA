@@ -60,6 +60,19 @@ fn replace(current: &Path, new: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Turned off by the user when this file exists (on by default).
+fn auto_off_flag() -> PathBuf {
+    net::cache_dir().with_file_name("auto-update.off")
+}
+
+pub fn auto_enabled() -> bool {
+    !auto_off_flag().exists()
+}
+
+pub fn set_auto(on: bool) {
+    let _ = if on { fs::remove_file(auto_off_flag()) } else { fs::write(auto_off_flag(), b"") };
+}
+
 /// Deletes the previous exe left by an update (it was still running then).
 pub fn cleanup() {
     if let Ok(c) = std::env::current_exe() {
