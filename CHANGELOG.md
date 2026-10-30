@@ -5,6 +5,15 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+### Corrigido
+- **DLSS 5 na AMD:** "NeuralHub não encontrado depois da instalação". O app procurava o `neuralhub.exe` em pastas fixas; agora usa o registro de desinstalação do Windows, que diz onde o instalador colocou o app. Se a instalação silenciosa não deixar o NeuralHub no lugar, o instalador normal abre.
+- **Capas não apareciam no Windows:** o caminho `file://C:\...` era lido como pasta de rede. As capas agora vêm da API oficial da loja Steam (`IStoreBrowseService/GetItems`), que também traz as capas novas que a Steam guarda em pastas com hash.
+
+### Alterado
+- **Downloads mais rápidos:** arquivos grandes do GitHub são baixados em 8 partes ao mesmo tempo, com progresso em MB no cartão de instalação. No teste, os DLLs do DLSS 5 (367 MB) levaram 8,7 s; uma conexão só leva 13 s.
+- **O app se atualiza sozinho:** quando sai uma release nova, ele baixa, confere o SHA-256 e reabre, sem clique. Confere ao abrir e a cada 6 horas. A opção **Atualizar o app sozinho** na barra lateral desliga.
+- Layout da biblioteca: espaço igual entre as linhas, sem o selo da loja repetido em cada capa, status do mod ("✔ DLSS 5 4x") dentro da capa, botão DLSS 5 com ✔ no lugar do "●", botões da barra lateral alinhados e caminho da pasta em uma linha.
+
 ## [1.1.0] - 2026-10-30
 
 ### Adicionado

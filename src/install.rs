@@ -420,11 +420,12 @@ fn neuralhub(notes: &[String], log: Log) -> Result<(), String> {
         log(format!("Instalando NeuralHub {}...", setup.tag));
         // Tauri's NSIS installer: /S = silent, per-user (no admin).
         let ok = std::process::Command::new(&setup.file).arg("/S").status().is_ok_and(|s| s.success());
-        if ok {
+        if ok && neuralhub_exe().is_some() {
             let _ = fs::write(&marker, &setup.tag);
         } else {
-            log("A instalação silenciosa falhou: abrindo o instalador normal.".into());
+            log("A instalação silenciosa não deu certo: abrindo o instalador normal.".into());
             std::process::Command::new(&setup.file).status().map_err(|e| format!("Instalador do NeuralHub: {e}"))?;
+            let _ = fs::write(&marker, &setup.tag);
         }
     }
     let exe = neuralhub_exe().ok_or("NeuralHub não encontrado depois da instalação")?;
@@ -437,10 +438,33 @@ fn neuralhub(notes: &[String], log: Log) -> Result<(), String> {
     Ok(())
 }
 
+/// neuralhub.exe: where its uninstall entry says (the folder depends on the installer's mode and name), else the usual folders.
 fn neuralhub_exe() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
-    [env("LOCALAPPDATA").map(|d| d.join("NeuralHub")), env("LOCALAPPDATA").map(|d| d.join("Programs/NeuralHub")), env("ProgramFiles").map(|d| d.join("NeuralHub"))]
-        .into_iter().flatten().map(|d| d.join("neuralhub.exe")).find(|p| p.exists())
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    #[cfg(windows)]
+    {
+        use crate::games::reg;
+        for root in [reg::HKCU, reg::HKLM] {
+            for base in [r"Software\Microsoft\Windows\CurrentVersion\Uninstall", r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"] {
+                for k in reg::subkeys(root, base) {
+                    let key = format!("{base}\\{k}");
+                    let get = |v: &str| reg::string(root, &key, v).unwrap_or_default();
+                    let icon = get("DisplayIcon");
+                    if !(get("DisplayName") + &k + &icon).to_lowercase().replace(' ', "").contains("neuralhub") {
+                        continue;
+                    }
+                    dirs.push(PathBuf::from(get("InstallLocation").trim_matches('"')));
+                    let icon = icon.split(',').next().unwrap_or_default().trim_matches('"').to_string();
+                    dirs.extend(Path::new(&icon).parent().map(Path::to_path_buf));
+                }
+            }
+        }
+    }
+    for base in [env("LOCALAPPDATA"), env("LOCALAPPDATA").map(|d| d.join("Programs")), env("ProgramFiles"), env("ProgramFiles(x86)")].into_iter().flatten() {
+        dirs.extend(["NeuralHub", "Neural Hub", "DLSS-NR on AMD"].map(|n| base.join(n)));
+    }
+    dirs.into_iter().filter(|d| !d.as_os_str().is_empty()).map(|d| d.join("neuralhub.exe")).find(|p| p.exists())
 }
 
 /// Redoes every modded game with its saved choices and the newest versions. One failure doesn't stop the rest.
