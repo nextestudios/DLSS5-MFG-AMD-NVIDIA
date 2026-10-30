@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-30
+
 ### Adicionado
 - **Instalador** `DLSS5-FrameGen-Setup.exe` (Inno Setup, em português): atalho no Menu Iniciar e opcional na área de trabalho, desinstalação pelo Windows. Instala por usuário em `%LOCALAPPDATA%\Programs\DLSS5-FrameGen`, sem Administrador, para a atualização automática continuar funcionando.
 - **Versão portátil** `DLSS5-FrameGen-vX.Y.Z-portable-win-x64.zip`: com `portable.txt` ao lado do `.exe`, cache, jogos adicionados e configurações ficam na pasta `GpuMods` ao lado dele.
@@ -67,7 +69,8 @@ Primeira versão pública.
 ### Segurança
 - SHA-256 de todo download conferido contra o GitHub.
 
-[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/releases/tag/v1.0.0
