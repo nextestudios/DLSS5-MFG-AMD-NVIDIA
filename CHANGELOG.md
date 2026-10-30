@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-30
+
 ### Corrigido
 - **DLSS 5 na AMD:** "NeuralHub não encontrado depois da instalação". O app procurava o `neuralhub.exe` em pastas fixas; agora usa o registro de desinstalação do Windows, que diz onde o instalador colocou o app. Se a instalação silenciosa não deixar o NeuralHub no lugar, o instalador normal abre.
 - **Capas não apareciam no Windows:** o caminho `file://C:\...` era lido como pasta de rede. As capas agora vêm da API oficial da loja Steam (`IStoreBrowseService/GetItems`), que também traz as capas novas que a Steam guarda em pastas com hash.
@@ -60,6 +62,7 @@ Primeira versão pública.
 ### Segurança
 - SHA-256 de todo download conferido contra o GitHub.
 
-[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/releases/tag/v1.0.0
