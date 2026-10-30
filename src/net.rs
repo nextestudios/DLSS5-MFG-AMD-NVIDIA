@@ -102,10 +102,10 @@ pub struct Fetched {
 
 /// Tag, file name and URL of the latest stable release asset whose name matches `pick`.
 /// Repos with only pre-releases (nightlies) have no "latest": then the newest release is used.
-fn latest_asset(repo: &str, pick: fn(&str) -> bool) -> Result<(String, Asset), String> {
+fn latest_asset(repo: &str, pick: fn(&str) -> bool, ttl: u64) -> Result<(String, Asset), String> {
     let meta = cache_dir().join("meta");
     let _ = fs::create_dir_all(&meta);
-    let rel = release_cached(&meta, repo, META_TTL_SECS, || {
+    let rel = release_cached(&meta, repo, ttl, || {
         let get = |path: &str| api(&format!("repos/{repo}/{path}"));
         Ok(match get("releases/latest") {
             Err(ureq::Error::StatusCode(404)) => get("releases?per_page=1")
@@ -120,9 +120,10 @@ fn latest_asset(repo: &str, pick: fn(&str) -> bool) -> Result<(String, Asset), S
     Ok((rel.tag_name, asset))
 }
 
-/// Latest stable tag that has an asset matching `pick`.
+/// Latest stable tag that has an asset matching `pick`, asked to GitHub now (no cache): the app's own
+/// update check must see a release made minutes ago. The answer refreshes the cache that `install` reads.
 pub fn latest_tag(repo: &str, pick: fn(&str) -> bool) -> Result<String, String> {
-    latest_asset(repo, pick).map(|(tag, _)| tag)
+    latest_asset(repo, pick, 0).map(|(tag, _)| tag)
 }
 
 /// Release info is reused for an hour: applying to several games in a row (or "update all")
@@ -157,7 +158,7 @@ fn newest_cached(prefix: &str, ok: impl Fn(&str) -> bool) -> Option<fs::DirEntry
 /// Offline, falls back to the newest copy already in the cache.
 pub fn latest_release(repo: &str, pick: fn(&str) -> bool, log: Log) -> Result<Fetched, String> {
     let prefix = format!("{}__", safe(repo));
-    let online = latest_asset(repo, pick).and_then(|(tag, a)| {
+    let online = latest_asset(repo, pick, META_TTL_SECS).and_then(|(tag, a)| {
         let file = cache_dir().join(format!("{prefix}{}__{}", safe(&tag), a.name));
         let fresh = !file.exists();
         download(&a.browser_download_url, &file, None, log)?;
@@ -184,7 +185,7 @@ pub fn latest_release(repo: &str, pick: fn(&str) -> bool, log: Log) -> Result<Fe
 /// (HTTP range requests). Uses the full zip instead when it is already in the cache.
 pub fn zip_files(repo: &str, pick: fn(&str) -> bool, wanted: &[&str], log: Log) -> Result<Fetched, String> {
     let prefix = format!("{}__", safe(repo));
-    let (tag, name, url) = match latest_asset(repo, pick) {
+    let (tag, name, url) = match latest_asset(repo, pick, META_TTL_SECS) {
         Ok((tag, a)) => (tag, a.name, a.browser_download_url),
         Err(err) => {
             let c = newest_cached(&prefix, |n| n == "files").filter(|c| c.path().join(".ok").exists())
