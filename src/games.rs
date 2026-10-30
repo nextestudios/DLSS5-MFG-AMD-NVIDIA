@@ -114,9 +114,17 @@ fn xbox(drive: &Path) -> Vec<Found> {
     let wide: Vec<u16> = b.get(8..).unwrap_or_default().as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     String::from_utf16_lossy(&wide).split('\0').filter(|s| !s.is_empty())
         .flat_map(|lib| fs::read_dir(drive.join(lib)).into_iter().flatten().flatten())
-        .filter(|e| e.path().join("Content").is_dir())
+        .filter(|e| has_exe(&e.path().join("Content"), 3))
         .map(|e| Found { name: e.file_name().to_string_lossy().into(), store: "Xbox", dir: e.path().join("Content"), steam_appid: None })
         .collect()
+}
+
+/// DLC and add-on packages (e.g. Call of Duty's "BO6 DLC…") have a Content folder too, but no .exe.
+fn has_exe(dir: &Path, depth: u8) -> bool {
+    fs::read_dir(dir).into_iter().flatten().flatten().any(|e| {
+        let p = e.path();
+        if p.is_dir() { depth > 0 && has_exe(&p, depth - 1) } else { p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")) }
+    })
 }
 
 #[cfg(windows)]
@@ -198,10 +206,11 @@ pub fn scan() -> Vec<Found> {
     finish(load_manual(&manual_file()))
 }
 
-/// Drops missing folders and duplicates (same folder from two stores), sorted by name.
+/// Drops missing folders and duplicates, sorted by name. Duplicates are compared by the real path:
+/// Steam's registry says "c:/program files (x86)/steam" and its library list "C:\\Program Files (x86)\\Steam".
 fn finish(mut all: Vec<Found>) -> Vec<Found> {
     let mut seen = std::collections::HashSet::new();
-    all.retain(|g| g.dir.is_dir() && seen.insert(g.dir.clone()));
+    all.retain(|g| g.dir.is_dir() && seen.insert(fs::canonicalize(&g.dir).unwrap_or_else(|_| g.dir.clone())));
     all.sort_by_key(|g| g.name.to_lowercase());
     all
 }
@@ -236,6 +245,7 @@ mod tests {
         assert_eq!(epic(&d)[0].dir, game);
 
         fs::create_dir_all(d.join("XboxGames/Forza/Content")).unwrap();
+        fs::write(d.join("XboxGames/Forza/Content/ForzaHorizon5.exe"), b"").unwrap();
         let mut root = b"RGBX\x01\x00\x00\x00".to_vec();
         root.extend("XboxGames\0".encode_utf16().flat_map(u16::to_le_bytes));
         fs::write(d.join(".GamingRoot"), root).unwrap();
@@ -255,7 +265,8 @@ mod tests {
         fs::create_dir_all(d.join("a")).unwrap();
         fs::create_dir_all(d.join("b")).unwrap();
         let f = |name: &str, store, dir: &str| Found { name: name.into(), store, dir: d.join(dir), steam_appid: None };
-        let out = finish(vec![f("zeta", "Steam", "a"), f("Alpha", "Epic", "b"), f("Zeta again", "GOG", "a"), f("gone", "EA", "missing")]);
+        // "b/../a" is the same folder written another way, like Steam's two spellings of its library.
+        let out = finish(vec![f("zeta", "Steam", "a"), f("Alpha", "Epic", "b"), f("Zeta again", "GOG", "a"), f("gone", "EA", "missing"), f("zeta", "Steam", "b/../a")]);
         let names: Vec<&str> = out.iter().map(|g| g.name.as_str()).collect();
         assert_eq!(names, ["Alpha", "zeta"]);
     }
@@ -264,7 +275,10 @@ mod tests {
     fn epic_skips_broken_manifests_and_xbox_needs_content() {
         let d = std::env::temp_dir().join(format!("gpumods-broken-{}", std::process::id()));
         fs::create_dir_all(d.join("XboxGames/NoContent")).unwrap();
-        fs::create_dir_all(d.join("Games2/Halo/Content")).unwrap();
+        fs::create_dir_all(d.join("Games2/Halo/Content/bin/x64")).unwrap();
+        fs::write(d.join("Games2/Halo/Content/bin/x64/Halo.EXE"), b"").unwrap();
+        // A DLC pack: Content, but no exe.
+        fs::create_dir_all(d.join("XboxGames/BO6 DLC06 Beta Pack 01/Content/data")).unwrap();
         fs::write(d.join("bad.item"), "{ not json").unwrap();
         fs::write(d.join("nofields.item"), "{}").unwrap();
         assert!(epic(&d).is_empty());

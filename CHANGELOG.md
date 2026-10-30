@@ -5,6 +5,14 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+### Corrigido
+- **Jogos duplicados na biblioteca:** a Steam registra a própria pasta de dois jeitos ("c:/program files (x86)/steam" e "C:\\Program Files (x86)\\Steam"), e a mesma biblioteca era lida duas vezes. Agora jogos na mesma pasta real aparecem uma vez só.
+- **Pacotes de DLC do Xbox apareciam como jogos** (por exemplo "BO6 DLC06 Beta Pack 01", "MW4 DLC02 Standard Pack 01"). Só entram pastas do Xbox que têm um `.exe`.
+- Capa gerada (jogo sem capa na Steam) mostrava o nome duas vezes.
+
+### Alterado
+- **Checagem de atualização sempre na hora:** ao abrir, o app pergunta ao GitHub se há release nova, sem usar o cache de 1 hora. Uma release publicada minutos antes já é encontrada (e instalada sozinha, se "Atualizar o app sozinho" estiver ligado).
+
 ## [1.3.0] - 2026-10-30
 
 ### Adicionado

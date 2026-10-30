@@ -422,9 +422,8 @@ fn paint_cover(ui: &egui::Ui, tex: &TextureHandle, rect: Rect, e: &Entry) {
     let hue = name_hue(&e.found.name);
     p.rect_filled(rect, 14, Color32::from(egui::ecolor::Hsva::new(hue, 0.55, 0.32, 1.0)));
     fade(p, tex, rect, 14, Color32::from(egui::ecolor::Hsva::new((hue + 0.12) % 1.0, 0.7, 0.12, 1.0)));
-    p.text(rect.center() - vec2(0.0, 24.0), Align2::CENTER_CENTER, initials(&e.found.name), FontId::proportional(54.0), Color32::from_white_alpha(225));
-    let g = p.layout(e.found.name.clone(), FontId::proportional(15.0), Color32::WHITE, rect.width() - 24.0);
-    p.galley(pos2(rect.center().x - g.size().x / 2.0, rect.center().y + 22.0), g, Color32::WHITE);
+    // The name is already at the bottom of the card.
+    p.text(rect.center() - vec2(0.0, 16.0), Align2::CENTER_CENTER, initials(&e.found.name), FontId::proportional(54.0), Color32::from_white_alpha(225));
 }
 
 fn chip(p: &egui::Painter, pos: Pos2, anchor: Align2, text: &str, fg: Color32, bg: Color32) -> Rect {
