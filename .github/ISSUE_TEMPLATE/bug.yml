@@ -1,0 +1,24 @@
+name: Problema em um jogo
+description: Algo não funcionou depois de aplicar
+labels: [bug]
+body:
+  - type: input
+    id: game
+    attributes: { label: Jogo e loja, placeholder: "Cyberpunk 2077 (Steam)" }
+    validations: { required: true }
+  - type: input
+    id: gpu
+    attributes: { label: Placa de vídeo e driver, placeholder: "RX 9070 XT, Adrenalin 26.10.1" }
+    validations: { required: true }
+  - type: input
+    id: choice
+    attributes: { label: Escolha no app, placeholder: "DLSS 5 ligado, 4x" }
+  - type: textarea
+    id: what
+    attributes: { label: O que aconteceu }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Cole o log do app (botão Log) e anexe OptiScaler.log / RTXMFG-*.log da pasta do jogo, se existirem.

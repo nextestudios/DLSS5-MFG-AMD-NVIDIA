@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Package
+        shell: bash
+        run: |
+          cp target/release/gpu-mods-app.exe DLSS5-FrameGen.exe
+          sha256sum DLSS5-FrameGen.exe > DLSS5-FrameGen.exe.sha256
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+          printf '\n**SHA-256:** `%s`\n' "$(cut -d' ' -f1 DLSS5-FrameGen.exe.sha256)" >> notes.md
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" DLSS5-FrameGen.exe DLSS5-FrameGen.exe.sha256 --title "DLSS5-FrameGen $GITHUB_REF_NAME" --notes-file notes.md
