@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-30
+
 ### Adicionado
 - **Biblioteca de jogos com capas**, no estilo do NeuralHub: barra lateral com as lojas (Todos, Modados, Steam, Epic, Xbox…, Adicionados) e grade de capas reais da Steam. Jogos de outras lojas ganham a capa quando existem na Steam com o mesmo nome; os demais ganham uma capa gerada.
 - **Aplicar com um clique:** passe o mouse na capa e clique em ⚡ Aplicar (usa o preset do topo). Clique direito para abrir, remover mods ou abrir a pasta.
@@ -49,5 +51,6 @@ Primeira versão pública.
 ### Segurança
 - SHA-256 de todo download conferido contra o GitHub.
 
-[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/releases/tag/v1.0.0
