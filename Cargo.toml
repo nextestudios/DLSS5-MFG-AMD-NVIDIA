@@ -1,6 +1,6 @@
 [package]
 name = "gpu-mods-app"
-version = "1.0.0"
+version = "1.1.0-rc.1"
 edition = "2024"
 rust-version = "1.88"
 description = "DLSS 5 e Multi Frame Generation (2x-6x) em qualquer jogo, para placas NVIDIA, AMD e Intel"
