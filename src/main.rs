@@ -535,38 +535,27 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
     }
 }
 
-/// DLSS 5 switch + frame generation segmented control; `big` for the game page.
-fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32, big: bool) {
-    let h = if big { 46.0 } else { 30.0 };
-    let size = if big { 16.0 } else { 13.0 };
+/// DLSS 5 switch + frame generation segmented control, laid out in the caller's row so everything shares one height.
+fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32) {
+    const H: f32 = 32.0;
     let ok5 = plan::dlss5_supported(app.gpu.tier);
-    ui.add_enabled_ui(ok5, |ui| {
-        let on = app.dlss5 && ok5;
-        let t = RichText::new(if on { "✔  DLSS 5" } else { "DLSS 5" }).size(size).strong();
-        let w = if big { ui.available_width() } else { 96.0 };
-        let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(w, h));
-        let hint = if app.gpu.tier.is_nvidia() { "DLSS 5 Neural Rendering via DLSS Unlocked" } else { "DLSS 5 via NeuralHub (DLSS-NR on AMD)" };
-        if ui.add(b).on_hover_text(hint).on_disabled_hover_text("Esta placa não roda DLSS 5").clicked() {
-            app.dlss5 = !app.dlss5;
-        }
-    });
-    if big {
-        ui.add_space(4.0);
-        ui.label(RichText::new("FRAME GENERATION").size(11.0).color(MUTED).strong());
+    let on = app.dlss5 && ok5;
+    let t = RichText::new(if on { "✔  DLSS 5" } else { "DLSS 5" }).size(13.0).strong();
+    let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(96.0, H));
+    let hint = if app.gpu.tier.is_nvidia() { "DLSS 5 Neural Rendering via DLSS Unlocked" } else { "DLSS 5 via NeuralHub (DLSS-NR on AMD)" };
+    if ui.add_enabled(ok5, b).on_hover_text(hint).on_disabled_hover_text("Esta placa não roda DLSS 5").clicked() {
+        app.dlss5 = !app.dlss5;
     }
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        let ok = plan::multipliers(app.gpu.tier);
-        let w = if big { (ui.available_width() - 16.0) / 5.0 } else { 44.0 };
-        for m in [0u8, 2, 3, 4, 6] {
-            let on = app.mult == m;
-            let t = RichText::new(if m == 0 { "Off".into() } else { format!("{m}x") }).size(size).strong();
-            let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(w, h));
-            if ui.add_enabled(ok.contains(&m), b).on_disabled_hover_text("Esta placa não chega nesse multiplicador").clicked() {
-                app.mult = m;
-            }
+    ui.add_space(8.0);
+    let ok = plan::multipliers(app.gpu.tier);
+    for m in [0u8, 2, 3, 4, 6] {
+        let sel = app.mult == m;
+        let t = RichText::new(if m == 0 { "Off".into() } else { format!("{m}x") }).size(13.0).strong();
+        let b = egui::Button::new(if sel { t.color(BG) } else { t }).fill(if sel { acc } else { CARD_HI }).min_size(vec2(46.0, H));
+        if ui.add_enabled(ok.contains(&m), b).on_disabled_hover_text("Esta placa não chega nesse multiplicador").clicked() {
+            app.mult = m;
         }
-    });
+    }
 }
 
 /// Jogo → Upscaler → DLSS 5 → Frame Gen → Tela, each stage lit when it does something.
@@ -936,10 +925,13 @@ fn library_page(ui: &mut egui::Ui, app: &mut App, acc: Color32, acts: &mut Vec<A
         });
         ui.add_space(8.0);
         egui::Frame::new().fill(CARD).corner_radius(14).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_sized(vec2(0.0, 30.0), egui::Label::new(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong()).extend());
-                ui.add_space(6.0);
-                feature_controls(ui, app, acc, false);
+            // One row, every item centred on the same line (labels and 32 px buttons).
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), 32.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong());
+                ui.add_space(10.0);
+                feature_controls(ui, app, acc);
+                ui.add_space(10.0);
                 let [_, _, fg] = plan::build(app.gpu.tier, app.dlss5, app.mult).pipeline(app.gpu.tier, app.mult);
                 ui.label(RichText::new(fg).size(12.0).color(acc));
             });

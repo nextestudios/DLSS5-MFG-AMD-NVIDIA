@@ -10,6 +10,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Cartão **Sobre** com a descrição, desenvolvedora, publicadora, lançamento e gêneros, em português, vindos da API oficial da loja Steam (`appdetails`), mais a loja e a pasta do jogo.
 - Cartão **Mods neste jogo**: status em verde, uma linha por escolha (DLSS 5, Frame Generation, Carregar como) com o seletor ao lado, e o botão de aplicar embaixo.
 - Títulos dos cartões maiores e em texto normal.
+- Barra "Aplicar rápido usa" alinhada: rótulo, DLSS 5, multiplicadores e o resultado na mesma linha e na mesma altura.
 
 ### Corrigido
 - **DLSS 5 na AMD não abria no jogo (End sem efeito)** quando o jogo já tinha OptiScaler/Frame Generation instalados pelo app: o OptiScaler ficava na frente do carregador do NeuralHub. Agora, ao instalar o DLSS 5 na AMD, o app remove antes os mods dele daquele jogo. Dicas de requisitos e do log do NeuralHub na tela do jogo.
