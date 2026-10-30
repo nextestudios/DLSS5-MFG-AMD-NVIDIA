@@ -92,6 +92,7 @@ pub fn build(tier: Tier, dlss5: bool, mult: u8) -> Plan {
         p.note("O app instala o NeuralHub e baixa o nvngx_dlssnr.dll (e dlss, dlssd, dlssg) mais recentes; a pasta com eles abre sozinha.");
         p.note("No NeuralHub: importe os DLLs dessa pasta (uma vez só), deixe ele achar os jogos e instale o mod loader no jogo.");
         p.note("No jogo: ative DLSS, FSR ou XeSS e aperte End. O Frame Generation (DLSS-FG até 4x) é configurado no próprio NeuralHub.");
+        p.note("Se o End não abrir nada: o NeuralHub pede Windows 11 e driver Adrenalin 26.1.1 ou mais novo, e o jogo tem que ser DirectX 12. O log dele fica em dlssnr_on_amd.log, na pasta do jogo.");
         return p;
     }
 

@@ -29,7 +29,7 @@ enum Msg {
     Log(String),
     Done(Result<(), String>),
     Library(Vec<Entry>, Vec<profiles::Profile>),
-    Art(PathBuf, art::Art),
+    Art(PathBuf, Box<art::Art>),
     Update(String),
 }
 
@@ -85,6 +85,7 @@ enum Act {
     RemoveMods(PathBuf),
     Forget(PathBuf),
     OpenFolder(PathBuf),
+    Play(PathBuf),
     AddFolder,
     Added(PathBuf),
 }
@@ -192,7 +193,7 @@ fn fetch_art(games: Vec<games::Found>, tx: Sender<Msg>, ctx: egui::Context) {
     std::thread::spawn(move || {
         for g in games {
             let a = art::fetch(&g);
-            if tx.send(Msg::Art(g.dir, a)).is_err() {
+            if tx.send(Msg::Art(g.dir, Box::new(a))).is_err() {
                 break;
             }
             ctx.request_repaint();
@@ -316,7 +317,8 @@ impl App {
         let plan = plan::build(self.gpu.tier, self.dlss5, self.mult);
         let (gpu, dlss5, mult) = (self.gpu.clone(), self.dlss5, self.mult);
         if plan.neuralhub {
-            self.run(ctx, "DLSS 5 na AMD (NeuralHub)".into(), move |log| install::apply(&gpu, dlss5, mult, None, Path::new(""), log));
+            let dir = self.entry(key).and_then(|e| e.dir.clone()).unwrap_or_default();
+            self.run(ctx, "DLSS 5 na AMD (NeuralHub)".into(), move |log| install::apply(&gpu, dlss5, mult, None, &dir, log));
             return;
         }
         let Some(e) = self.entry(key) else { return };
@@ -361,6 +363,17 @@ impl App {
                 self.view = View::Library;
                 if r.is_err() {
                     self.notify("Tirar da biblioteca", r);
+                }
+            }
+            Act::Play(k) => {
+                let Some(e) = self.entry(&k) else { return };
+                let target = match (e.found.store, e.art.appid) {
+                    ("Steam", Some(id)) => Some(format!("steam://rungameid/{id}")),
+                    _ => e.dir.as_deref().and_then(install::main_exe).map(|x| x.display().to_string()),
+                };
+                if let Some(t) = target {
+                    // explorer opens both a steam:// link and an .exe, with the game's own folder as working dir.
+                    let _ = std::process::Command::new(if cfg!(windows) { "explorer" } else { "open" }).arg(t).spawn();
                 }
             }
             Act::OpenFolder(p) => {
@@ -522,38 +535,27 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
     }
 }
 
-/// DLSS 5 switch + frame generation segmented control; `big` for the game page.
-fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32, big: bool) {
-    let h = if big { 46.0 } else { 30.0 };
-    let size = if big { 16.0 } else { 13.0 };
+/// DLSS 5 switch + frame generation segmented control, laid out in the caller's row so everything shares one height.
+fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32) {
+    const H: f32 = 32.0;
     let ok5 = plan::dlss5_supported(app.gpu.tier);
-    ui.add_enabled_ui(ok5, |ui| {
-        let on = app.dlss5 && ok5;
-        let t = RichText::new(if on { "✔  DLSS 5" } else { "DLSS 5" }).size(size).strong();
-        let w = if big { ui.available_width() } else { 96.0 };
-        let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(w, h));
-        let hint = if app.gpu.tier.is_nvidia() { "DLSS 5 Neural Rendering via DLSS Unlocked" } else { "DLSS 5 via NeuralHub (DLSS-NR on AMD)" };
-        if ui.add(b).on_hover_text(hint).on_disabled_hover_text("Esta placa não roda DLSS 5").clicked() {
-            app.dlss5 = !app.dlss5;
-        }
-    });
-    if big {
-        ui.add_space(4.0);
-        ui.label(RichText::new("FRAME GENERATION").size(11.0).color(MUTED).strong());
+    let on = app.dlss5 && ok5;
+    let t = RichText::new(if on { "✔  DLSS 5" } else { "DLSS 5" }).size(13.0).strong();
+    let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(96.0, H));
+    let hint = if app.gpu.tier.is_nvidia() { "DLSS 5 Neural Rendering via DLSS Unlocked" } else { "DLSS 5 via NeuralHub (DLSS-NR on AMD)" };
+    if ui.add_enabled(ok5, b).on_hover_text(hint).on_disabled_hover_text("Esta placa não roda DLSS 5").clicked() {
+        app.dlss5 = !app.dlss5;
     }
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        let ok = plan::multipliers(app.gpu.tier);
-        let w = if big { (ui.available_width() - 16.0) / 5.0 } else { 44.0 };
-        for m in [0u8, 2, 3, 4, 6] {
-            let on = app.mult == m;
-            let t = RichText::new(if m == 0 { "Off".into() } else { format!("{m}x") }).size(size).strong();
-            let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(w, h));
-            if ui.add_enabled(ok.contains(&m), b).on_disabled_hover_text("Esta placa não chega nesse multiplicador").clicked() {
-                app.mult = m;
-            }
+    ui.add_space(8.0);
+    let ok = plan::multipliers(app.gpu.tier);
+    for m in [0u8, 2, 3, 4, 6] {
+        let sel = app.mult == m;
+        let t = RichText::new(if m == 0 { "Off".into() } else { format!("{m}x") }).size(13.0).strong();
+        let b = egui::Button::new(if sel { t.color(BG) } else { t }).fill(if sel { acc } else { CARD_HI }).min_size(vec2(46.0, H));
+        if ui.add_enabled(ok.contains(&m), b).on_disabled_hover_text("Esta placa não chega nesse multiplicador").clicked() {
+            app.mult = m;
         }
-    });
+    }
 }
 
 /// Jogo → Upscaler → DLSS 5 → Frame Gen → Tela, each stage lit when it does something.
@@ -609,8 +611,8 @@ fn frame_timeline(ui: &mut egui::Ui, mult: u8, accent: Color32) {
 fn section<R>(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new().fill(CARD).corner_radius(16).inner_margin(18).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new(title.to_uppercase()).size(11.0).color(MUTED).strong());
-        ui.add_space(2.0);
+        ui.label(RichText::new(title).size(16.0).strong().color(Color32::WHITE));
+        ui.add_space(6.0);
         add(ui)
     }).inner
 }
@@ -625,8 +627,8 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
     let tex = app.fade.clone().expect("fade texture");
     let plan = plan::build(app.gpu.tier, app.dlss5, app.mult);
 
-    // Hero: Steam background cropped to fill, fading into the page; logo or title on top.
-    let (hero, _) = ui.allocate_exact_size(vec2(ui.available_width(), 300.0), Sense::hover());
+    // Header: Steam background, dimmed and fading into the page; cover, title, facts and actions on top.
+    let (hero, _) = ui.allocate_exact_size(vec2(ui.available_width(), 330.0), Sense::hover());
     if let Some(h) = &art.hero {
         let (img, r) = (1920.0 / 620.0, hero.width() / hero.height());
         let uv = if r > img {
@@ -637,32 +639,62 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
             Rect::from_min_max(pos2((1.0 - wid) / 2.0, 0.0), pos2((1.0 + wid) / 2.0, 1.0))
         };
         egui::Image::new(file_uri(h)).uv(uv).paint_at(ui, hero);
+        ui.painter().rect_filled(hero, 0, Color32::from_black_alpha(110));
     } else {
         let hue = name_hue(&name);
-        ui.painter().rect_filled(hero, 0, Color32::from(egui::ecolor::Hsva::new(hue, 0.6, 0.35, 1.0)));
-        ui.painter().text(hero.right_center() - vec2(80.0, 0.0), Align2::RIGHT_CENTER, initials(&name), FontId::proportional(180.0), Color32::from_white_alpha(28));
+        ui.painter().rect_filled(hero, 0, Color32::from(egui::ecolor::Hsva::new(hue, 0.6, 0.25, 1.0)));
     }
     fade(ui.painter(), &tex, hero, 0, BG);
-    let logo_box = Rect::from_min_size(pos2(hero.left() + 36.0, hero.bottom() - 190.0), vec2(480.0, 140.0));
-    match &art.logo {
-        Some(l) => {
-            // A child Ui: the logo must not move the page's cursor (the cards start below the hero).
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(logo_box).layout(egui::Layout::left_to_right(egui::Align::Max)));
-            child.add(egui::Image::new(file_uri(l)).fit_to_exact_size(logo_box.size()).maintain_aspect_ratio(true));
+
+    let cover = Rect::from_min_size(hero.left_top() + vec2(36.0, 70.0), vec2(160.0, 240.0));
+    ui.painter().rect_filled(cover.translate(vec2(0.0, 6.0)).expand(2.0), 12, Color32::from_black_alpha(120));
+    match &art.poster {
+        Some(p) => {
+            egui::Image::new(file_uri(p)).corner_radius(12).paint_at(ui, cover);
         }
         None => {
-            let g = ui.painter().layout(name.clone(), FontId::proportional(40.0), Color32::WHITE, 700.0);
-            ui.painter().galley(pos2(logo_box.left(), logo_box.bottom() - g.size().y), g, Color32::WHITE);
+            let hue = name_hue(&name);
+            ui.painter().rect_filled(cover, 12, Color32::from(egui::ecolor::Hsva::new(hue, 0.55, 0.32, 1.0)));
+            ui.painter().text(cover.center(), Align2::CENTER_CENTER, initials(&name), FontId::proportional(48.0), Color32::from_white_alpha(225));
         }
     }
-    let p = ui.painter();
-    let y = hero.bottom() - 34.0;
-    let x = chip(p, pos2(hero.left() + 36.0, y), Align2::LEFT_CENTER, store_label(store), Color32::BLACK, store_color(store)).right() + 6.0;
+    ui.painter().rect_stroke(cover, 12, Stroke::new(1.0, Color32::from_white_alpha(40)), StrokeKind::Inside);
+
+    let info = Rect::from_min_max(pos2(cover.right() + 28.0, cover.top() + 60.0), pos2(hero.right() - 36.0, cover.bottom()));
+    let mut ui2 = ui.new_child(egui::UiBuilder::new().max_rect(info).layout(egui::Layout::top_down(egui::Align::Min)));
+    ui2.label(RichText::new(&name).size(34.0).strong().color(Color32::WHITE));
+    let mut facts: Vec<String> = Vec::new();
+    if let Some(d) = &art.details {
+        facts.extend([d.developers.clone(), d.release.clone()].into_iter().filter(|s| !s.is_empty()));
+    }
+    facts.push(store_label(store).to_string());
+    ui2.label(RichText::new(facts.join("  ·  ")).size(14.0).color(Color32::from_gray(200)));
     if let Some(st) = &state {
         let fg = if st.mult > 0 { format!(" · {}x", st.mult) } else { String::new() };
         let d5 = if st.dlss5 { " · DLSS 5" } else { "" };
-        chip(p, pos2(x, y), Align2::LEFT_CENTER, &format!("✔ modado {}{d5}{fg}", ago(st.when)), Color32::BLACK, acc);
+        ui2.label(RichText::new(format!("✔ modado {}{d5}{fg}", ago(st.when))).size(13.0).color(acc));
     }
+    ui2.add_space(12.0);
+    ui2.horizontal(|ui| {
+        let play = egui::Button::new(RichText::new("▶  Jogar").size(16.0).strong().color(BG)).fill(acc).corner_radius(10).min_size(vec2(130.0, 44.0));
+        let can_play = art.appid.is_some() && store == "Steam" || dir.as_deref().and_then(install::main_exe).is_some();
+        if ui.add_enabled(can_play, play).on_hover_text("Abre o jogo (pela Steam, quando ele é da Steam)").clicked() {
+            acts.push(Act::Play(key.to_path_buf()));
+        }
+        ui.spacing_mut().button_padding = vec2(14.0, 12.0);
+        ui.menu_button(RichText::new("⋯").size(16.0).strong(), |ui| {
+            if ui.button("Abrir pasta do jogo").clicked() {
+                acts.push(Act::OpenFolder(dir.clone().unwrap_or(key.to_path_buf())));
+            }
+            if ui.add_enabled(!app.busy() && state.is_some(), egui::Button::new("Remover mods")).clicked() {
+                acts.push(Act::RemoveMods(key.to_path_buf()));
+            }
+            if store == "Manual" && ui.button("Tirar da biblioteca").clicked() {
+                acts.push(Act::Forget(key.to_path_buf()));
+            }
+        });
+    });
+
     let back = Rect::from_min_size(hero.left_top() + vec2(20.0, 18.0), vec2(118.0, 34.0));
     let b = ui.interact(back, Id::unique("back"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
     ui.painter().rect_filled(back, 17, Color32::from_black_alpha(if b.hovered() { 220 } else { 150 }));
@@ -671,11 +703,47 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
         app.view = View::Library;
     }
 
-    ui.add_space(6.0);
-    egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 28, top: 0, bottom: 28 }).show(ui, |ui| {
+    // Below the header: "Sobre" and the image path on the left, this game's mods on the right.
+    egui::Frame::new().inner_margin(egui::Margin { left: 28, right: 28, top: 6, bottom: 28 }).show(ui, |ui| {
         ui.columns(2, |c| {
-            section(&mut c[0], "Recursos", |ui| feature_controls(ui, app, acc, true));
-            c[0].add_space(10.0);
+            section(&mut c[0], "Sobre", |ui| {
+                if let Some(d) = art.details.as_ref().filter(|d| !d.description.is_empty()) {
+                    ui.label(RichText::new(&d.description).size(14.0).color(Color32::from_gray(225)));
+                    ui.add_space(8.0);
+                }
+                egui::Grid::new("sobre").num_columns(2).spacing(vec2(28.0, 10.0)).show(ui, |ui| {
+                    let row = |ui: &mut egui::Ui, k: &str, v: &str| {
+                        ui.label(RichText::new(k).size(13.0).color(MUTED));
+                        ui.label(RichText::new(v).size(13.0).color(Color32::WHITE));
+                        ui.end_row();
+                    };
+                    if let Some(d) = &art.details {
+                        for (k, v) in [("Desenvolvedora", &d.developers), ("Publicadora", &d.publishers), ("Lançamento", &d.release)] {
+                            if !v.is_empty() {
+                                row(ui, k, v);
+                            }
+                        }
+                        if !d.genres.is_empty() {
+                            ui.label(RichText::new("Gêneros").size(13.0).color(MUTED));
+                            ui.horizontal(|ui| {
+                                for g in &d.genres {
+                                    egui::Frame::new().fill(CARD_HI).corner_radius(10).inner_margin(egui::Margin::symmetric(10, 4))
+                                        .show(ui, |ui| ui.label(RichText::new(g).size(12.0).color(Color32::WHITE)));
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    }
+                    row(ui, "Loja", store_label(store));
+                    ui.label(RichText::new("Instalado em").size(13.0).color(MUTED));
+                    match &dir {
+                        Some(d) => ui.add(egui::Label::new(RichText::new(d.display().to_string()).size(13.0).color(Color32::WHITE)).wrap()),
+                        None => ui.colored_label(Color32::LIGHT_RED, "Não achei o .exe do jogo nesta pasta"),
+                    };
+                    ui.end_row();
+                });
+            });
+            c[0].add_space(12.0);
             let [up, nr, fg] = plan.pipeline(app.gpu.tier, app.mult);
             let out = app.base_fps * u32::from(app.mult.max(1));
             section(&mut c[0], "Caminho da imagem", |ui| {
@@ -702,9 +770,22 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                 ui.label(RichText::new(msg).size(12.0).color(MUTED));
             });
 
-            section(&mut c[1], "Instalação", |ui| {
-                let label = if plan.neuralhub { "⚡  Instalar DLSS 5 (NeuralHub)" } else { "⚡  Aplicar neste jogo" };
+            section(&mut c[1], "Mods neste jogo", |ui| {
                 let busy = app.busy();
+                match &state {
+                    Some(st) => {
+                        ui.label(RichText::new(format!("✔ Mods instalados {}", ago(st.when))).size(14.0).color(Color32::from_rgb(74, 222, 128)));
+                        let v: Vec<String> = st.versions.iter().map(|(k, v)| format!("{k} {v}")).collect();
+                        ui.label(RichText::new(v.join("  ·  ")).size(12.0).color(MUTED));
+                    }
+                    None => {
+                        ui.label(RichText::new("Nenhum mod instalado").size(14.0).color(MUTED));
+                    }
+                }
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
                 let mut blocked = false;
                 if let Some(ac) = &anticheat {
                     let mut ok = app.anticheat_ok.contains(key);
@@ -720,46 +801,71 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                             }
                         }
                     });
+                    ui.add_space(6.0);
                     blocked = !ok;
                 }
-                let go = egui::Button::new(RichText::new(label).size(18.0).strong().color(BG)).fill(acc).min_size(vec2(ui.available_width(), 56.0));
-                if ui.add_enabled(!busy && !blocked && (plan.neuralhub || dir.is_some()), go).clicked() {
-                    acts.push(Act::ApplyHere(key.to_path_buf()));
-                }
-                if !plan.neuralhub {
-                    ui.horizontal(|ui| {
-                        let heading = ui.label(RichText::new("Carregar como").size(12.0).color(MUTED));
-                        egui::ComboBox::from_id_salt("proxy").selected_text(app.proxy.unwrap_or("Automático (dxgi.dll)")).show_ui(ui, |ui| {
+
+                // One row per choice: label on the left, picker on the right.
+                let pick_w = 220.0;
+                egui::Grid::new("mods").num_columns(2).spacing(vec2(20.0, 12.0)).min_col_width(140.0).show(ui, |ui| {
+                    let ok5 = plan::dlss5_supported(app.gpu.tier);
+                    let heading = ui.label(RichText::new("DLSS 5 (Neural Rendering)").size(13.0).color(MUTED));
+                    ui.add_enabled_ui(ok5, |ui| {
+                        let text = if app.dlss5 && ok5 { "Ligado" } else if ok5 { "Desligado" } else { "Esta placa não roda" };
+                        egui::ComboBox::from_id_salt("dlss5").width(pick_w).selected_text(text).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut app.dlss5, true, "Ligado");
+                            ui.selectable_value(&mut app.dlss5, false, "Desligado");
+                        }).response.labelled_by(heading.id);
+                    });
+                    ui.end_row();
+
+                    let heading = ui.label(RichText::new("Frame Generation").size(13.0).color(MUTED));
+                    let label = |m: u8| if m == 0 { "Desligado".to_string() } else { format!("{m}x") };
+                    egui::ComboBox::from_id_salt("mult").width(pick_w).selected_text(label(app.mult)).show_ui(ui, |ui| {
+                        for m in plan::multipliers(app.gpu.tier) {
+                            ui.selectable_value(&mut app.mult, *m, label(*m));
+                        }
+                    }).response.labelled_by(heading.id);
+                    ui.end_row();
+
+                    let [_, _, fg] = plan.pipeline(app.gpu.tier, app.mult);
+                    ui.label(RichText::new("Vai usar").size(13.0).color(MUTED));
+                    ui.label(RichText::new(fg).size(13.0).color(Color32::WHITE));
+                    ui.end_row();
+
+                    if !plan.neuralhub {
+                        let heading = ui.label(RichText::new("Carregar como").size(13.0).color(MUTED));
+                        egui::ComboBox::from_id_salt("proxy").width(pick_w).selected_text(app.proxy.unwrap_or("Automático (dxgi.dll)")).show_ui(ui, |ui| {
                             ui.selectable_value(&mut app.proxy, None, "Automático (dxgi.dll)");
                             for p in install::PROXY_CHOICES {
                                 ui.selectable_value(&mut app.proxy, Some(p), p);
                             }
                         }).response.labelled_by(heading.id).on_hover_text("Se o mod não aparecer no jogo, tente outro nome: alguns jogos não carregam dxgi.dll.");
-                    });
-                }
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!busy && state.is_some(), egui::Button::new("Remover mods")).clicked() {
-                        acts.push(Act::RemoveMods(key.to_path_buf()));
+                        ui.end_row();
                     }
-                    if ui.button("Abrir pasta").clicked() {
-                        acts.push(Act::OpenFolder(dir.clone().unwrap_or(key.to_path_buf())));
-                    }
-                    if store == "Manual" && ui.button("Tirar da biblioteca").clicked() {
-                        acts.push(Act::Forget(key.to_path_buf()));
-                    }
+
+                    ui.label(RichText::new("Placa").size(13.0).color(MUTED));
+                    ui.label(RichText::new(&app.gpu.name).size(13.0).color(Color32::WHITE));
+                    ui.end_row();
                 });
-                match &dir {
-                    Some(d) => ui.add(egui::Label::new(RichText::new(d.display().to_string()).size(11.0).color(MUTED)).truncate()).on_hover_text(d.display().to_string()),
-                    None => ui.colored_label(Color32::LIGHT_RED, "Não achei o .exe do jogo nesta pasta"),
+
+                ui.add_space(12.0);
+                let label = match (plan.neuralhub, state.is_some()) {
+                    (true, _) => "⚡  Instalar DLSS 5 (NeuralHub)",
+                    (false, true) => "⚡  Reaplicar com estas opções",
+                    (false, false) => "⚡  Aplicar neste jogo",
                 };
-                if let Some(st) = &state {
-                    ui.add_space(4.0);
-                    for (k, v) in &st.versions {
-                        ui.label(RichText::new(format!("✔ {k}  {v}")).size(12.0).color(acc));
-                    }
+                let go = egui::Button::new(RichText::new(label).size(17.0).strong().color(BG)).fill(acc).corner_radius(10).min_size(vec2(ui.available_width(), 50.0));
+                if ui.add_enabled(!busy && !blocked && (plan.neuralhub || dir.is_some()), go).clicked() {
+                    acts.push(Act::ApplyHere(key.to_path_buf()));
                 }
+                if state.is_some() && ui.add_enabled(!busy, egui::Button::new("Remover mods deste jogo").min_size(vec2(ui.available_width(), 34.0))).clicked() {
+                    acts.push(Act::RemoveMods(key.to_path_buf()));
+                }
+
+                ui.add_space(8.0);
                 ui.separator();
-                ui.label(RichText::new("VAI SER INSTALADO").size(11.0).color(MUTED).strong());
+                ui.label(RichText::new("O que vai ser instalado").size(13.0).strong().color(Color32::WHITE));
                 let mut items = Vec::new();
                 match plan.opti {
                     Some(plan::Opti::Unlocked) => items.push("DLSS Unlocked"),
@@ -792,8 +898,8 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                     ui.label(RichText::new(format!("•  {n}")).size(12.0).color(MUTED));
                 }
                 if !tips.is_empty() {
-                    ui.separator();
-                    ui.label(RichText::new("DICAS PARA ESTE JOGO").size(11.0).color(MUTED).strong());
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Dicas para este jogo").size(13.0).strong().color(Color32::WHITE));
                     for t in &tips {
                         ui.label(RichText::new(format!("•  {t}")).size(12.0).color(Color32::from_rgb(250, 204, 21)));
                     }
@@ -819,10 +925,13 @@ fn library_page(ui: &mut egui::Ui, app: &mut App, acc: Color32, acts: &mut Vec<A
         });
         ui.add_space(8.0);
         egui::Frame::new().fill(CARD).corner_radius(14).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_sized(vec2(0.0, 30.0), egui::Label::new(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong()).extend());
-                ui.add_space(6.0);
-                feature_controls(ui, app, acc, false);
+            // One row, every item centred on the same line (labels and 32 px buttons).
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), 32.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong());
+                ui.add_space(10.0);
+                feature_controls(ui, app, acc);
+                ui.add_space(10.0);
                 let [_, _, fg] = plan::build(app.gpu.tier, app.dlss5, app.mult).pipeline(app.gpu.tier, app.mult);
                 ui.label(RichText::new(fg).size(12.0).color(acc));
             });
@@ -1029,7 +1138,7 @@ impl App {
                 Msg::Update(tag) => self.update = Some(tag),
                 Msg::Art(key, a) => {
                     if let Some(e) = self.library.iter_mut().find(|e| e.found.dir == key) {
-                        e.art = a;
+                        e.art = *a;
                     }
                 }
             }
