@@ -204,6 +204,7 @@ fn fetch_art(games: Vec<games::Found>, tx: Sender<Msg>, ctx: egui::Context) {
 impl App {
     fn new(ctx: &egui::Context, game_arg: Option<PathBuf>) -> App {
         egui_extras::install_image_loaders(ctx);
+        install_icons(ctx);
         let detected = gpu::detect();
         let gpu = detected.clone().unwrap_or(Gpu { name: "Placa não detectada".into(), tier: Tier::Rtx40 });
         let (tx, rx) = channel();
@@ -396,6 +397,32 @@ fn default_mult(tier: Tier) -> u8 {
     }
 }
 
+/// Phosphor icons (MIT, assets/Phosphor-LICENSE.txt). Symbols like ▶ or ⚡ come out as colour emoji on
+/// Windows; these are drawn like text, in the text's colour, on every PC.
+mod icon {
+    pub const PLAY: &str = "\u{E3D0}";
+    pub const BOLT: &str = "\u{E2DE}";
+    pub const CHECK: &str = "\u{E182}";
+    pub const WARNING: &str = "\u{E4E0}";
+    pub const SEARCH: &str = "\u{E30C}";
+    pub const REFRESH: &str = "\u{E094}";
+    pub const BACK: &str = "\u{E058}";
+    pub const MORE: &str = "\u{E1FE}";
+    pub const CLOSE: &str = "\u{E4F6}";
+    pub const FAILED: &str = "\u{E4F8}";
+}
+
+/// The icon font goes right after the text font: it also has glyphs for plain letters, which must not win.
+fn install_icons(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert("phosphor".into(), std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../assets/Phosphor.ttf"))));
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        let list = fonts.families.entry(family).or_default();
+        list.insert(1.min(list.len()), "phosphor".into());
+    }
+    ctx.set_fonts(fonts);
+}
+
 fn style(ctx: &egui::Context, accent: Color32) {
     ctx.set_theme(egui::Theme::Dark);
     ctx.all_styles_mut(|s| {
@@ -485,11 +512,11 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                 let edge = if t > 0.0 { acc.gamma_multiply(0.4 + 0.6 * t) } else { Color32::from_white_alpha(18) };
                 p.rect_stroke(card, 14, Stroke::new(1.0 + t, edge), StrokeKind::Inside);
                 if e.anticheat.is_some() {
-                    chip(p, card.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, "⚠ anti-cheat", Color32::WHITE, Color32::from_rgb(200, 40, 50));
+                    chip(p, card.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, &format!("{} anti-cheat", icon::WARNING), Color32::WHITE, Color32::from_rgb(200, 40, 50));
                 }
                 if let Some(st) = &e.state {
                     let d5 = if st.dlss5 { " DLSS 5" } else { "" };
-                    let label = if st.mult > 0 { format!("✔{d5} {}x", st.mult) } else { format!("✔{}", if d5.is_empty() { " MOD" } else { d5 }) };
+                    let label = if st.mult > 0 { format!("{}{d5} {}x", icon::CHECK, st.mult) } else { format!("{}{}", icon::CHECK, if d5.is_empty() { " MOD" } else { d5 }) };
                     chip(p, card.right_top() + vec2(-8.0, 8.0), Align2::RIGHT_TOP, &label, Color32::BLACK, acc);
                 }
                 // Quick apply: appears on hover, applies the current preset.
@@ -497,7 +524,7 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                 if t > 0.01 {
                     let over = resp.hover_pos().is_some_and(|h| quick.contains(h));
                     p.rect_filled(quick, 10, acc.gamma_multiply(if over { 1.0 } else { 0.8 } * t));
-                    let label = if e.anticheat.is_some() { "⚠ Ver aviso" } else { "⚡ Aplicar" };
+                    let label = if e.anticheat.is_some() { format!("{} Ver aviso", icon::WARNING) } else { format!("{} Aplicar", icon::BOLT) };
                     p.text(quick.center(), Align2::CENTER_CENTER, label, FontId::proportional(14.0), BG);
                 } else {
                     let g = p.layout(e.found.name.clone(), FontId::proportional(13.0), Color32::WHITE, card_w - 24.0);
@@ -516,7 +543,7 @@ fn card_grid(ui: &mut egui::Ui, tex: &TextureHandle, entries: &[&Entry], acc: Co
                     if ui.button("Abrir").clicked() {
                         acts.push(Act::Open(key.clone()));
                     }
-                    if ui.button("⚡ Aplicar preset").clicked() {
+                    if ui.button(format!("{} Aplicar preset", icon::BOLT)).clicked() {
                         acts.push(Act::Quick(key.clone()));
                     }
                     if e.state.is_some() && ui.button("Remover mods").clicked() {
@@ -540,7 +567,7 @@ fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32) {
     const H: f32 = 32.0;
     let ok5 = plan::dlss5_supported(app.gpu.tier);
     let on = app.dlss5 && ok5;
-    let t = RichText::new(if on { "✔  DLSS 5" } else { "DLSS 5" }).size(13.0).strong();
+    let t = RichText::new(if on { format!("{}  DLSS 5", icon::CHECK) } else { "DLSS 5".into() }).size(13.0).strong();
     let b = egui::Button::new(if on { t.color(BG) } else { t }).fill(if on { acc } else { CARD_HI }).min_size(vec2(96.0, H));
     let hint = if app.gpu.tier.is_nvidia() { "DLSS 5 Neural Rendering via DLSS Unlocked" } else { "DLSS 5 via NeuralHub (DLSS-NR on AMD)" };
     if ui.add_enabled(ok5, b).on_hover_text(hint).on_disabled_hover_text("Esta placa não roda DLSS 5").clicked() {
@@ -672,17 +699,17 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
     if let Some(st) = &state {
         let fg = if st.mult > 0 { format!(" · {}x", st.mult) } else { String::new() };
         let d5 = if st.dlss5 { " · DLSS 5" } else { "" };
-        ui2.label(RichText::new(format!("✔ modado {}{d5}{fg}", ago(st.when))).size(13.0).color(acc));
+        ui2.label(RichText::new(format!("{} modado {}{d5}{fg}", icon::CHECK, ago(st.when))).size(13.0).color(acc));
     }
     ui2.add_space(12.0);
     ui2.horizontal(|ui| {
-        let play = egui::Button::new(RichText::new("▶  Jogar").size(16.0).strong().color(BG)).fill(acc).corner_radius(10).min_size(vec2(130.0, 44.0));
+        let play = egui::Button::new(RichText::new(format!("{}  Jogar", icon::PLAY)).size(16.0).strong().color(BG)).fill(acc).corner_radius(10).min_size(vec2(130.0, 44.0));
         let can_play = art.appid.is_some() && store == "Steam" || dir.as_deref().and_then(install::main_exe).is_some();
         if ui.add_enabled(can_play, play).on_hover_text("Abre o jogo (pela Steam, quando ele é da Steam)").clicked() {
             acts.push(Act::Play(key.to_path_buf()));
         }
         ui.spacing_mut().button_padding = vec2(14.0, 12.0);
-        ui.menu_button(RichText::new("⋯").size(16.0).strong(), |ui| {
+        ui.menu_button(RichText::new(icon::MORE).size(18.0).strong(), |ui| {
             if ui.button("Abrir pasta do jogo").clicked() {
                 acts.push(Act::OpenFolder(dir.clone().unwrap_or(key.to_path_buf())));
             }
@@ -698,7 +725,7 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
     let back = Rect::from_min_size(hero.left_top() + vec2(20.0, 18.0), vec2(118.0, 34.0));
     let b = ui.interact(back, Id::unique("back"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
     ui.painter().rect_filled(back, 17, Color32::from_black_alpha(if b.hovered() { 220 } else { 150 }));
-    ui.painter().text(back.center(), Align2::CENTER_CENTER, "←  Biblioteca", FontId::proportional(13.0), Color32::WHITE);
+    ui.painter().text(back.center(), Align2::CENTER_CENTER, format!("{}  Biblioteca", icon::BACK), FontId::proportional(13.0), Color32::WHITE);
     if b.clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         app.view = View::Library;
     }
@@ -774,7 +801,7 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                 let busy = app.busy();
                 match &state {
                     Some(st) => {
-                        ui.label(RichText::new(format!("✔ Mods instalados {}", ago(st.when))).size(14.0).color(Color32::from_rgb(74, 222, 128)));
+                        ui.label(RichText::new(format!("{} Mods instalados {}", icon::CHECK, ago(st.when))).size(14.0).color(Color32::from_rgb(74, 222, 128)));
                         let v: Vec<String> = st.versions.iter().map(|(k, v)| format!("{k} {v}")).collect();
                         ui.label(RichText::new(v.join("  ·  ")).size(12.0).color(MUTED));
                     }
@@ -791,7 +818,7 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                     let mut ok = app.anticheat_ok.contains(key);
                     egui::Frame::new().fill(Color32::from_rgb(70, 18, 24)).stroke(Stroke::new(1.0, Color32::from_rgb(220, 60, 70))).corner_radius(12).inner_margin(12).show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.label(RichText::new(format!("⚠  Anti-cheat detectado: {ac}")).strong().color(Color32::WHITE));
+                        ui.label(RichText::new(format!("{}  Anti-cheat detectado: {ac}", icon::WARNING)).strong().color(Color32::WHITE));
                         ui.label(RichText::new("DLLs injetadas podem dar banimento. O aplicar fica bloqueado até você confirmar.").size(12.0).color(Color32::from_gray(220)));
                         if ui.checkbox(&mut ok, "Vou jogar só offline / com o anti-cheat desligado").changed() {
                             if ok {
@@ -851,9 +878,9 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
 
                 ui.add_space(12.0);
                 let label = match (plan.neuralhub, state.is_some()) {
-                    (true, _) => "⚡  Instalar DLSS 5 (NeuralHub)",
-                    (false, true) => "⚡  Reaplicar com estas opções",
-                    (false, false) => "⚡  Aplicar neste jogo",
+                    (true, _) => format!("{}  Instalar DLSS 5 (NeuralHub)", icon::BOLT),
+                    (false, true) => format!("{}  Reaplicar com estas opções", icon::BOLT),
+                    (false, false) => format!("{}  Aplicar neste jogo", icon::BOLT),
                 };
                 let go = egui::Button::new(RichText::new(label).size(17.0).strong().color(BG)).fill(acc).corner_radius(10).min_size(vec2(ui.available_width(), 50.0));
                 if ui.add_enabled(!busy && !blocked && (plan.neuralhub || dir.is_some()), go).clicked() {
@@ -921,14 +948,14 @@ fn library_page(ui: &mut egui::Ui, app: &mut App, acc: Color32, acts: &mut Vec<A
             };
             ui.label(RichText::new(title).size(26.0).strong().color(Color32::WHITE));
             ui.add_space(12.0);
-            ui.add(egui::TextEdit::singleline(&mut app.search).hint_text("🔍  Buscar jogo").desired_width(240.0).margin(vec2(10.0, 7.0)));
+            ui.add(egui::TextEdit::singleline(&mut app.search).hint_text(format!("{}  Buscar jogo", icon::SEARCH)).desired_width(240.0).margin(vec2(10.0, 7.0)));
         });
         ui.add_space(8.0);
         egui::Frame::new().fill(CARD).corner_radius(14).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
             // One row, every item centred on the same line (labels and 32 px buttons).
             ui.allocate_ui_with_layout(vec2(ui.available_width(), 32.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label(RichText::new("⚡ APLICAR RÁPIDO USA").size(11.0).color(MUTED).strong());
+                ui.label(RichText::new(format!("{} APLICAR RÁPIDO USA", icon::BOLT)).size(11.0).color(MUTED).strong());
                 ui.add_space(10.0);
                 feature_controls(ui, app, acc);
                 ui.add_space(10.0);
@@ -956,7 +983,9 @@ fn library_page(ui: &mut egui::Ui, app: &mut App, acc: Color32, acts: &mut Vec<A
 
 fn rail(ui: &mut egui::Ui, app: &mut App, acc: Color32, ctx: &egui::Context) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("◆").size(22.0).color(acc));
+        let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
+        let (c, k) = (r.center(), 10.0);
+        ui.painter().add(egui::Shape::convex_polygon(vec![c - vec2(0.0, k), c + vec2(k, 0.0), c + vec2(0.0, k), c - vec2(k, 0.0)], acc, Stroke::NONE));
         ui.vertical(|ui| {
             ui.label(RichText::new("NEURAL · FG").size(16.0).strong().color(Color32::WHITE));
             ui.label(RichText::new(concat!("DLSS 5 + MFG  ·  v", env!("CARGO_PKG_VERSION"))).size(10.0).color(MUTED));
@@ -1028,7 +1057,7 @@ fn rail(ui: &mut egui::Ui, app: &mut App, acc: Color32, ctx: &egui::Context) {
     }
     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
         let dirs: Vec<PathBuf> = app.library.iter().filter(|e| e.state.is_some()).filter_map(|e| e.dir.clone()).collect();
-        let b = egui::Button::new(format!("⟳  Atualizar todos ({})", dirs.len())).min_size(vec2(ui.available_width(), 36.0));
+        let b = egui::Button::new(format!("{}  Atualizar todos ({})", icon::REFRESH, dirs.len())).min_size(vec2(ui.available_width(), 36.0));
         if ui.add_enabled(!app.busy() && !dirs.is_empty(), b).on_hover_text("Reinstala as escolhas salvas de cada jogo modado com as versões mais novas").clicked() {
             let gpu = app.gpu.clone();
             app.run(ctx, format!("Atualizando {} jogos", dirs.len()), move |log| install::update_all(&gpu, &dirs, log));
@@ -1038,7 +1067,7 @@ fn rail(ui: &mut egui::Ui, app: &mut App, acc: Color32, ctx: &egui::Context) {
                 ui.spinner();
                 ui.label(RichText::new("Procurando jogos…").size(11.0).color(MUTED));
             });
-        } else if ui.add(egui::Button::new(RichText::new("🔍  Procurar jogos de novo").size(12.0)).min_size(vec2(ui.available_width(), 30.0))).clicked() {
+        } else if ui.add(egui::Button::new(RichText::new(format!("{}  Procurar jogos de novo", icon::SEARCH)).size(12.0)).min_size(vec2(ui.available_width(), 30.0))).clicked() {
             app.scanning = true;
             scan_library(app.tx.clone(), ctx.clone());
         }
@@ -1058,15 +1087,15 @@ fn task_card(ctx: &egui::Context, task: &mut Task, acc: Color32) -> bool {
                             ui.spinner();
                         }
                         Some(Ok(())) => {
-                            ui.label(RichText::new("✔").size(18.0).color(acc));
+                            ui.label(RichText::new(icon::CHECK).size(18.0).color(acc));
                         }
                         Some(Err(_)) => {
-                            ui.label(RichText::new("✖").size(18.0).color(Color32::LIGHT_RED));
+                            ui.label(RichText::new(icon::FAILED).size(18.0).color(Color32::LIGHT_RED));
                         }
                     }
                     ui.label(RichText::new(&task.title).strong().color(Color32::WHITE));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if task.done.is_some() && ui.small_button("✕").clicked() {
+                        if task.done.is_some() && ui.small_button(icon::CLOSE).clicked() {
                             close = true;
                         }
                     });
