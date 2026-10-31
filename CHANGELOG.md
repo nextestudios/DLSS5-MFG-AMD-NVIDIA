@@ -5,6 +5,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+### Corrigido
+- **Ícones no lugar de emojis:** no Windows, símbolos como ▶, ⚡, 🔍, ✔ e ⚠ apareciam como emojis coloridos do sistema (o "▶ Jogar" virava um quadrado azul). Agora todos os ícones vêm da fonte Phosphor (MIT), embutida no app: mesmo desenho em qualquer PC, na cor do texto.
+
 ## [1.4.0] - 2026-10-30
 
 ### Alterado

@@ -82,6 +82,7 @@ O app **não redistribui** nenhum desses arquivos: ele baixa de cada projeto na 
 | [mavismmg/MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) | MFG junto com DLSS 5 em RTX 40 |
 | [danielblnc/DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD) | DLSS 5 em AMD (NeuralHub) |
 | [ReShade](https://reshade.me) | Carregador de add-ons |
+| [Phosphor Icons](https://phosphoricons.com) | Ícones da interface (fonte embutida no app, licença MIT em `assets/Phosphor-LICENSE.txt`) |
 
 Este projeto não é afiliado à NVIDIA, AMD ou Intel. DLSS, FSR e XeSS são marcas de seus donos.
 
