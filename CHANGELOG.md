@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-30
+
 ### Corrigido
 - **Ícones no lugar de emojis:** no Windows, símbolos como ▶, ⚡, 🔍, ✔ e ⚠ apareciam como emojis coloridos do sistema (o "▶ Jogar" virava um quadrado azul). Agora todos os ícones vêm da fonte Phosphor (MIT), embutida no app: mesmo desenho em qualquer PC, na cor do texto.
 
@@ -97,7 +99,8 @@ Primeira versão pública.
 ### Segurança
 - SHA-256 de todo download conferido contra o GitHub.
 
-[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.2.0...v1.3.0
