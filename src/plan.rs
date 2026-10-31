@@ -190,8 +190,9 @@ impl Plan {
         };
         let nr = if self.neuralhub || self.ini_val("DlssNr", "Enabled") == Some("true") { "DLSS 5 Neural Rendering" } else { "Desligado" };
         let fg = match mult {
+            // NeuralHub's DLSS-FG is switched on in the game's own menu, whatever is picked here.
+            _ if self.neuralhub => "DLSS-FG do NeuralHub (no menu do jogo, até 4x)".to_string(),
             OFF => "Desligado".to_string(),
-            m if self.neuralhub => format!("DLSS-FG {m}x (NeuralHub)"),
             m if self.mfg_unlocker && self.opti.is_some() => format!("XeSS-FG {m}x + MFG Unlocker"),
             m if self.mfg_unlocker => format!("DLSS MFG {m}x (MFG Unlocker)"),
             m if self.mfg_addon => format!("MFG Unlock {m}x (RenoDX)"),
@@ -329,7 +330,11 @@ mod tests {
                     assert!(p.notes.iter().all(|n| !n.trim().is_empty()), "{ctx}");
                     let [up, nr, fg] = p.pipeline(tier, effective);
                     assert!(!up.is_empty() && !nr.is_empty(), "{ctx}");
-                    assert_eq!(fg == "Desligado", effective == OFF, "{ctx}: {fg}");
+                    if p.neuralhub {
+                        assert!(fg.contains("NeuralHub"), "{ctx}: on AMD + DLSS 5 the FG is NeuralHub's, set in the game: {fg}");
+                    } else {
+                        assert_eq!(fg == "Desligado", effective == OFF, "{ctx}: {fg}");
+                    }
                 }
             }
         }

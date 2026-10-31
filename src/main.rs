@@ -575,11 +575,14 @@ fn feature_controls(ui: &mut egui::Ui, app: &mut App, acc: Color32) {
     }
     ui.add_space(8.0);
     let ok = plan::multipliers(app.gpu.tier);
+    // AMD + DLSS 5: frame generation is NeuralHub's, chosen in the game's menu.
+    let neuralhub = plan::build(app.gpu.tier, app.dlss5, app.mult).neuralhub;
     for m in [0u8, 2, 3, 4, 6] {
         let sel = app.mult == m;
         let t = RichText::new(if m == 0 { "Off".into() } else { format!("{m}x") }).size(13.0).strong();
         let b = egui::Button::new(if sel { t.color(BG) } else { t }).fill(if sel { acc } else { CARD_HI }).min_size(vec2(46.0, H));
-        if ui.add_enabled(ok.contains(&m), b).on_disabled_hover_text("Esta placa não chega nesse multiplicador").clicked() {
+        let why = if neuralhub { "Com DLSS 5 na AMD, o Frame Generation é o DLSS-FG do NeuralHub: ligue no menu do jogo" } else { "Esta placa não chega nesse multiplicador" };
+        if ui.add_enabled(!neuralhub && ok.contains(&m), b).on_disabled_hover_text(why).clicked() {
             app.mult = m;
         }
     }
@@ -847,12 +850,17 @@ fn game_page(ui: &mut egui::Ui, app: &mut App, key: &Path, acc: Color32, acts: &
                     ui.end_row();
 
                     let heading = ui.label(RichText::new("Frame Generation").size(13.0).color(MUTED));
-                    let label = |m: u8| if m == 0 { "Desligado".to_string() } else { format!("{m}x") };
-                    egui::ComboBox::from_id_salt("mult").width(pick_w).selected_text(label(app.mult)).show_ui(ui, |ui| {
-                        for m in plan::multipliers(app.gpu.tier) {
-                            ui.selectable_value(&mut app.mult, *m, label(*m));
-                        }
-                    }).response.labelled_by(heading.id);
+                    if plan.neuralhub {
+                        ui.label(RichText::new("No menu do jogo (DLSS-FG do NeuralHub, até 4x)").size(13.0).color(Color32::WHITE))
+                            .on_hover_text("Ligue DLSS Frame Generation no jogo. Só funciona em jogos que têm DLSS Frame Generation.");
+                    } else {
+                        let label = |m: u8| if m == 0 { "Desligado".to_string() } else { format!("{m}x") };
+                        egui::ComboBox::from_id_salt("mult").width(pick_w).selected_text(label(app.mult)).show_ui(ui, |ui| {
+                            for m in plan::multipliers(app.gpu.tier) {
+                                ui.selectable_value(&mut app.mult, *m, label(*m));
+                            }
+                        }).response.labelled_by(heading.id);
+                    }
                     ui.end_row();
 
                     let [_, _, fg] = plan.pipeline(app.gpu.tier, app.mult);
