@@ -5,6 +5,9 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+### Alterado
+- **Frame Generation com DLSS 5 na AMD:** o seletor 2x–6x não tinha efeito nesse modo (quem gera os quadros é o DLSS-FG do NeuralHub). Agora a tela diz "No menu do jogo (DLSS-FG do NeuralHub, até 4x)" e os botões de multiplicador ficam desativados, com a explicação ao passar o mouse.
+
 ## [1.4.1] - 2026-10-30
 
 ### Corrigido
