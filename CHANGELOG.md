@@ -5,6 +5,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-30
+
 ### Alterado
 - **Frame Generation com DLSS 5 na AMD:** o seletor 2x–6x não tinha efeito nesse modo (quem gera os quadros é o DLSS-FG do NeuralHub). Agora a tela diz "No menu do jogo (DLSS-FG do NeuralHub, até 4x)" e os botões de multiplicador ficam desativados, com a explicação ao passar o mouse.
 
@@ -102,7 +104,8 @@ Primeira versão pública.
 ### Segurança
 - SHA-256 de todo download conferido contra o GitHub.
 
-[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/nextestudios/DLSS5-MFG-AMD-NVIDIA/compare/v1.3.0...v1.3.1
